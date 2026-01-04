@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text-to-SQL Agent</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">🧠</span>
+                <h1>Text-to-SQL Research Pipeline</h1>
+            </div>
+            <p class="tagline">LangGraph State Machine • Semantic Disambiguation • Self-Correction</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Query Input Section -->
+            <section class="query-section glass-card">
+                <h2>Ask a Question</h2>
+                <div class="input-group">
+                    <input type="text" id="query-input" placeholder="e.g., How many customers do we have?"
+                        autocomplete="off">
+                    <button id="submit-btn" class="btn-primary">
+                        <span class="btn-text">Generate SQL</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner"></span>
+                        </span>
+                    </button>
+                </div>
+                <div class="example-queries">
+                    <span class="example-label">Try:</span>
+                    <button class="example-btn" data-query="How many customers do we have?">Count customers</button>
+                    <button class="example-btn" data-query="What is the total revenue from delivered orders?">Total
+                        revenue</button>
+                    <button class="example-btn" data-query="Show me the top 5 customers by total spending">Top
+                        customers</button>
+                    <button class="example-btn" data-query="What are the sales?">Ambiguous (HITL)</button>
+                </div>
+            </section>
+
+            <!-- Status Section -->
+            <section id="status-section" class="status-section" style="display: none;">
+                <div class="status-indicator">
+                    <span id="status-icon" class="status-icon"></span>
+                    <span id="status-text" class="status-text"></span>
+                </div>
+            </section>
+
+            <!-- HITL Feedback Section -->
+            <section id="hitl-section" class="hitl-section glass-card" style="display: none;">
+                <div class="hitl-header">
+                    <span class="hitl-icon">🤔</span>
+                    <h3>Clarification Needed</h3>
+                </div>
+                <div class="hitl-content">
+                    <p id="hitl-message">The query seems ambiguous. Please provide more details.</p>
+                    <div class="hitl-details">
+                        <strong>Confidence:</strong> <span id="hitl-confidence">-</span>
+                        <br>
+                        <strong>Issues:</strong>
+                        <ul id="hitl-reasoning"></ul>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" id="feedback-input" placeholder="Provide clarification...">
+                        <button id="feedback-btn" class="btn-secondary">Submit Feedback</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section id="results-section" class="results-section" style="display: none;">
+                <div class="result-card glass-card">
+                    <h3>Generated SQL</h3>
+                    <pre id="sql-output" class="code-block"><code></code></pre>
+                </div>
+                <div class="result-card glass-card">
+                    <h3>Execution Result</h3>
+                    <div id="data-output" class="data-table-container"></div>
+                </div>
+                <div class="result-card glass-card plan-details">
+                    <h3>Agent Analysis</h3>
+                    <div id="plan-output" class="plan-info"></div>
+                </div>
+            </section>
+
+            <!-- Error Section -->
+            <section id="error-section" class="error-section glass-card" style="display: none;">
+                <div class="error-header">
+                    <span class="error-icon">❌</span>
+                    <h3>Error</h3>
+                </div>
+                <p id="error-message"></p>
+            </section>
+        </main>
+
+        <!-- Schema Sidebar -->
+        <aside class="schema-sidebar glass-card">
+            <h3>Database Schema</h3>
+            <div class="schema-table">
+                <div class="table-name">👤 customers</div>
+                <ul class="columns">
+                    <li><span class="col-name">id</span> <span class="col-type">INTEGER PK</span></li>
+                    <li><span class="col-name">name</span> <span class="col-type">TEXT</span></li>
+                    <li><span class="col-name">email</span> <span class="col-type">TEXT</span></li>
+                    <li><span class="col-name">state</span> <span class="col-type">TEXT</span></li>
+                </ul>
+            </div>
+            <div class="schema-table">
+                <div class="table-name">📦 products</div>
+                <ul class="columns">
+                    <li><span class="col-name">id</span> <span class="col-type">INTEGER PK</span></li>
+                    <li><span class="col-name">name</span> <span class="col-type">TEXT</span></li>
+                    <li><span class="col-name">category</span> <span class="col-type">TEXT</span></li>
+                    <li><span class="col-name">price</span> <span class="col-type">DECIMAL</span></li>
+                </ul>
+            </div>
+            <div class="schema-table">
+                <div class="table-name">🛒 orders</div>
+                <ul class="columns">
+                    <li><span class="col-name">id</span> <span class="col-type">INTEGER PK</span></li>
+                    <li><span class="col-name">customer_id</span> <span class="col-type">FK</span></li>
+                    <li><span class="col-name">status</span> <span class="col-type">TEXT</span></li>
+                    <li><span class="col-name">total_amount</span> <span class="col-type">DECIMAL</span></li>
+                </ul>
+            </div>
+            <div class="schema-table">
+                <div class="table-name">📋 order_items</div>
+                <ul class="columns">
+                    <li><span class="col-name">order_id</span> <span class="col-type">FK</span></li>
+                    <li><span class="col-name">product_id</span> <span class="col-type">FK</span></li>
+                    <li><span class="col-name">quantity</span> <span class="col-type">INT</span></li>
+                </ul>
+            </div>
+        </aside>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

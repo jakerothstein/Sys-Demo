@@ -1,0 +1,136 @@
+{
+  "database_name": "ecommerce_demo",
+  "description": "A sample e-commerce database for Text-to-SQL research",
+  "tables": {
+    "customers": {
+      "description": "Stores customer information including contact details and account status",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Unique customer identifier",
+          "is_primary_key": true
+        },
+        "name": {
+          "type": "TEXT",
+          "description": "Full name of the customer",
+          "sample_values": ["Alice Johnson", "Bob Smith", "Charlie Brown"]
+        },
+        "email": {
+          "type": "TEXT",
+          "description": "Customer email address",
+          "sample_values": ["alice@gmail.com", "bob@yahoo.com"]
+        },
+        "state": {
+          "type": "TEXT",
+          "description": "US state where customer is located",
+          "sample_values": ["California", "Texas", "Georgia", "New York"]
+        },
+        "created_at": {
+          "type": "TIMESTAMP",
+          "description": "Account creation date"
+        }
+      }
+    },
+    "products": {
+      "description": "Product catalog with pricing and category information",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Unique product identifier",
+          "is_primary_key": true
+        },
+        "name": {
+          "type": "TEXT",
+          "description": "Product name",
+          "sample_values": ["Laptop Pro", "Wireless Mouse", "USB-C Cable"]
+        },
+        "category": {
+          "type": "TEXT",
+          "description": "Product category",
+          "sample_values": ["Electronics", "Accessories", "Software"]
+        },
+        "price": {
+          "type": "DECIMAL",
+          "description": "Unit price in USD"
+        },
+        "cost": {
+          "type": "DECIMAL",
+          "description": "Cost to acquire/manufacture the product"
+        }
+      }
+    },
+    "orders": {
+      "description": "Customer orders with status tracking",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Unique order identifier",
+          "is_primary_key": true
+        },
+        "customer_id": {
+          "type": "INTEGER",
+          "description": "Reference to customers.id",
+          "foreign_key": "customers.id"
+        },
+        "order_date": {
+          "type": "DATE",
+          "description": "Date the order was placed"
+        },
+        "status": {
+          "type": "TEXT",
+          "description": "Current order status",
+          "sample_values": ["pending", "shipped", "delivered", "cancelled"]
+        },
+        "total_amount": {
+          "type": "DECIMAL",
+          "description": "Total order value (gross revenue)"
+        }
+      }
+    },
+    "order_items": {
+      "description": "Individual items within an order",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Unique line item identifier",
+          "is_primary_key": true
+        },
+        "order_id": {
+          "type": "INTEGER",
+          "description": "Reference to orders.id",
+          "foreign_key": "orders.id"
+        },
+        "product_id": {
+          "type": "INTEGER",
+          "description": "Reference to products.id",
+          "foreign_key": "products.id"
+        },
+        "quantity": {
+          "type": "INTEGER",
+          "description": "Number of units ordered"
+        },
+        "unit_price": {
+          "type": "DECIMAL",
+          "description": "Price per unit at time of order"
+        }
+      }
+    }
+  },
+  "semantic_notes": {
+    "sales": {
+      "ambiguous": true,
+      "possible_interpretations": [
+        {"term": "gross_revenue", "sql_hint": "SUM(orders.total_amount)"},
+        {"term": "net_profit", "sql_hint": "SUM(order_items.quantity * (order_items.unit_price - products.cost))"},
+        {"term": "unit_count", "sql_hint": "SUM(order_items.quantity)"}
+      ]
+    },
+    "top_customers": {
+      "ambiguous": true,
+      "possible_interpretations": [
+        {"term": "by_revenue", "sql_hint": "ORDER BY SUM(total_amount) DESC"},
+        {"term": "by_order_count", "sql_hint": "ORDER BY COUNT(orders.id) DESC"}
+      ]
+    }
+  }
+}

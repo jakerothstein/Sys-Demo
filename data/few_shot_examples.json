@@ -1,0 +1,108 @@
+{
+    "examples": [
+        {
+            "id": "ex_001",
+            "question": "How many customers do we have?",
+            "sql": "SELECT COUNT(*) as customer_count FROM customers;",
+            "intent": "count",
+            "tables": [
+                "customers"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "ex_002",
+            "question": "What is the total revenue from delivered orders?",
+            "sql": "SELECT SUM(total_amount) as total_revenue FROM orders WHERE status = 'delivered';",
+            "intent": "aggregation",
+            "tables": [
+                "orders"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "ex_003",
+            "question": "Show me the top 5 customers by total spending",
+            "sql": "SELECT c.name, SUM(o.total_amount) as total_spent FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id, c.name ORDER BY total_spent DESC LIMIT 5;",
+            "intent": "ranking",
+            "tables": [
+                "customers",
+                "orders"
+            ],
+            "difficulty": "medium"
+        },
+        {
+            "id": "ex_004",
+            "question": "What products are in the Electronics category?",
+            "sql": "SELECT name, price FROM products WHERE category = 'Electronics';",
+            "intent": "filter",
+            "tables": [
+                "products"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "ex_005",
+            "question": "How many orders were placed by customers in California?",
+            "sql": "SELECT COUNT(*) as order_count FROM orders o JOIN customers c ON o.customer_id = c.id WHERE c.state = 'California';",
+            "intent": "count_with_join",
+            "tables": [
+                "orders",
+                "customers"
+            ],
+            "difficulty": "medium"
+        },
+        {
+            "id": "ex_006",
+            "question": "What is the average order value?",
+            "sql": "SELECT AVG(total_amount) as avg_order_value FROM orders;",
+            "intent": "aggregation",
+            "tables": [
+                "orders"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "ex_007",
+            "question": "Which products have never been ordered?",
+            "sql": "SELECT p.name FROM products p LEFT JOIN order_items oi ON p.id = oi.product_id WHERE oi.id IS NULL;",
+            "intent": "negative_join",
+            "tables": [
+                "products",
+                "order_items"
+            ],
+            "difficulty": "hard"
+        },
+        {
+            "id": "ex_008",
+            "question": "Show monthly revenue for 2024",
+            "sql": "SELECT strftime('%Y-%m', order_date) as month, SUM(total_amount) as revenue FROM orders WHERE strftime('%Y', order_date) = '2024' GROUP BY month ORDER BY month;",
+            "intent": "time_series",
+            "tables": [
+                "orders"
+            ],
+            "difficulty": "medium"
+        },
+        {
+            "id": "ex_009",
+            "question": "What is the profit margin for each product?",
+            "sql": "SELECT name, price, cost, ROUND((price - cost) / price * 100, 2) as margin_percent FROM products;",
+            "intent": "calculation",
+            "tables": [
+                "products"
+            ],
+            "difficulty": "medium"
+        },
+        {
+            "id": "ex_010",
+            "question": "Find customers who have placed more than 3 orders",
+            "sql": "SELECT c.name, COUNT(o.id) as order_count FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id, c.name HAVING COUNT(o.id) > 3;",
+            "intent": "having_clause",
+            "tables": [
+                "customers",
+                "orders"
+            ],
+            "difficulty": "medium"
+        }
+    ]
+}

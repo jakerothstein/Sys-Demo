@@ -56,7 +56,7 @@ class AnthropicClient(BaseLLMClient):
 class GoogleClient(BaseLLMClient):
     """Google Gemini client."""
     
-    def __init__(self, model: str = "gemini-1.5-pro", temperature: float = 0.1):
+    def __init__(self, model: str = "gemini-2.0-flash", temperature: float = 0.1):
         self.model = model
         self.temperature = temperature
         self.api_key = os.environ.get("GOOGLE_API_KEY")
@@ -77,12 +77,17 @@ class GoogleClient(BaseLLMClient):
         if not self.is_available():
             raise RuntimeError("Google client not available")
         
-        response = self.client.generate_content(
-            prompt,
-            generation_config={"temperature": self.temperature}
-        )
-        
-        return response.text
+        try:
+            response = self.client.generate_content(
+                prompt,
+                generation_config={"temperature": self.temperature}
+            )
+            return response.text
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+                raise RuntimeError(f"Rate limit exceeded. Please wait 30 seconds and try again. Error: {error_str[:200]}")
+            raise
 
 
 class MockLLMClient(BaseLLMClient):
@@ -102,19 +107,43 @@ class MockLLMClient(BaseLLMClient):
         if "analyze" in prompt_lower and "ambiguity" in prompt_lower:
             return '{"confidence": 0.85, "is_ambiguous": false, "reasoning": "Query is clear."}'
         
-        # Mock SQL generation
+        # Mock SQL generation - extract table names from schema in prompt
         if "generate" in prompt_lower and "sql" in prompt_lower:
-            if "count" in prompt_lower and "customer" in prompt_lower:
-                return """SQL_1: SELECT COUNT(*) FROM customers;
-SQL_2: SELECT COUNT(id) FROM customers;
-SQL_3: SELECT COUNT(*) as total FROM customers;"""
+            # Try to extract table names from the schema in the prompt
+            tables = self._extract_tables_from_prompt(prompt)
+            primary_table = tables[0] if tables else "unknown_table"
+            
+            if "count" in prompt_lower or "how many" in prompt_lower:
+                return f"""SQL_1: SELECT COUNT(*) as count FROM {primary_table};
+SQL_2: SELECT COUNT(*) FROM {primary_table};
+SQL_3: SELECT COUNT(*) as total FROM {primary_table};"""
+            elif "highest" in prompt_lower or "most" in prompt_lower or "max" in prompt_lower:
+                return f"""SQL_1: SELECT * FROM {primary_table} ORDER BY salary DESC LIMIT 1;
+SQL_2: SELECT * FROM {primary_table} ORDER BY salary DESC LIMIT 5;
+SQL_3: SELECT * FROM {primary_table} LIMIT 10;"""
+            elif "show" in prompt_lower or "list" in prompt_lower:
+                return f"""SQL_1: SELECT * FROM {primary_table} LIMIT 20;
+SQL_2: SELECT * FROM {primary_table};
+SQL_3: SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"""
             else:
-                return """SQL_1: SELECT * FROM customers LIMIT 10;
-SQL_2: SELECT id, name FROM customers LIMIT 10;
-SQL_3: SELECT * FROM customers ORDER BY id LIMIT 10;"""
+                return f"""SQL_1: SELECT * FROM {primary_table} LIMIT 10;
+SQL_2: SELECT * FROM {primary_table};
+SQL_3: SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"""
         
         # Default response
         return "Mock response for: " + prompt[:100]
+    
+    def _extract_tables_from_prompt(self, prompt: str) -> list:
+        """Extract table names from schema section of prompt."""
+        tables = []
+        lines = prompt.split('\n')
+        for line in lines:
+            # Look for "Table: tablename" pattern
+            if line.strip().startswith('Table:'):
+                table_name = line.split(':', 1)[1].strip()
+                if table_name:
+                    tables.append(table_name)
+        return tables
 
 
 def create_llm_client(provider: str = "auto", **kwargs) -> BaseLLMClient:

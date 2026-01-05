@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark Analytics | Text-to-SQL</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        .analytics-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .analytics-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .analytics-header h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 15px;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .nav-links a:hover {
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--primary-color);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+
+        .stat-change {
+            font-size: 0.8rem;
+            margin-top: 8px;
+        }
+
+        .stat-change.positive {
+            color: #4ade80;
+        }
+
+        .stat-change.negative {
+            color: #f87171;
+        }
+
+        .analytics-section {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 30px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-header h2 {
+            font-size: 1.3rem;
+        }
+
+        .difficulty-chart {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .difficulty-bar {
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .difficulty-name {
+            font-weight: 600;
+            margin-bottom: 10px;
+            text-transform: capitalize;
+        }
+
+        .difficulty-stats {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #8b5cf6);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .runs-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .runs-table th,
+        .runs-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .runs-table th {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        .runs-table tr:hover {
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status-completed {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+        }
+
+        .status-running {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .status-failed {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+        }
+
+        .view-btn {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .view-btn:hover {
+            opacity: 0.9;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+        }
+
+        .start-benchmark-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .start-benchmark-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .chart-container {
+            height: 200px;
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            padding: 20px 0;
+        }
+
+        .chart-bar {
+            flex: 1;
+            background: linear-gradient(180deg, #6366f1, #8b5cf6);
+            border-radius: 8px 8px 0 0;
+            min-height: 10px;
+            position: relative;
+            transition: height 0.5s ease;
+        }
+
+        .chart-bar-label {
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="analytics-container">
+        <div class="analytics-header">
+            <h1>📊 Benchmark Analytics</h1>
+            <div class="nav-links">
+                <a href="/">← Back to Query</a>
+                <a href="#" id="refresh-btn">🔄 Refresh</a>
+            </div>
+        </div>
+
+        <!-- Stats Overview -->
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value" id="total-runs">-</div>
+                <div class="stat-label">Total Benchmark Runs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="total-questions">-</div>
+                <div class="stat-label">Questions Evaluated</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="success-rate">-</div>
+                <div class="stat-label">Success Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="hitl-accuracy">-</div>
+                <div class="stat-label">HITL Prediction Accuracy</div>
+            </div>
+        </div>
+
+        <!-- Difficulty Breakdown -->
+        <section class="analytics-section">
+            <div class="section-header">
+                <h2>📈 Performance by Difficulty</h2>
+            </div>
+            <div class="difficulty-chart" id="difficulty-chart">
+                <div class="loading"><span class="spinner"></span> Loading...</div>
+            </div>
+        </section>
+
+        <!-- Recent Runs -->
+        <section class="analytics-section">
+            <div class="section-header">
+                <h2>🏃 Recent Benchmark Runs</h2>
+                <a href="/" class="start-benchmark-btn">Start New Benchmark</a>
+            </div>
+            <div id="runs-table-container">
+                <div class="loading"><span class="spinner"></span> Loading...</div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        async function loadAnalytics() {
+            try {
+                const response = await fetch(`${API_BASE}/api/benchmark/analytics`);
+                const data = await response.json();
+                renderAnalytics(data);
+            } catch (error) {
+                console.error('Failed to load analytics:', error);
+            }
+        }
+
+        function renderAnalytics(data) {
+            // Overall stats
+            const overall = data.overall || {};
+            document.getElementById('total-runs').textContent = overall.total_runs || 0;
+            document.getElementById('total-questions').textContent = overall.total_questions || 0;
+            document.getElementById('success-rate').textContent =
+                data.success_rate ? `${(data.success_rate * 100).toFixed(1)}%` : '0%';
+            document.getElementById('hitl-accuracy').textContent =
+                data.hitl_accuracy ? `${(data.hitl_accuracy * 100).toFixed(1)}%` : 'N/A';
+
+            // Difficulty chart
+            const difficultyContainer = document.getElementById('difficulty-chart');
+            const byDifficulty = data.by_difficulty || [];
+
+            if (byDifficulty.length === 0) {
+                difficultyContainer.innerHTML = `
+                    <div class="empty-state">
+                        <p>No difficulty data yet</p>
+                    </div>
+                `;
+            } else {
+                difficultyContainer.innerHTML = byDifficulty.map(d => {
+                    const successRate = d.count > 0 ? (d.successes / d.count * 100) : 0;
+                    return `
+                        <div class="difficulty-bar">
+                            <div class="difficulty-name">${d.difficulty || 'Unknown'}</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${successRate}%"></div>
+                            </div>
+                            <div class="difficulty-stats">
+                                ${d.successes}/${d.count} success (${successRate.toFixed(0)}%)
+                            </div>
+                            <div class="difficulty-stats">
+                                ${d.hitl_count || 0} HITL triggered
+                            </div>
+                            <div class="difficulty-stats">
+                                Avg confidence: ${((d.avg_confidence || 0) * 100).toFixed(0)}%
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Recent runs table
+            const runsContainer = document.getElementById('runs-table-container');
+            const recentRuns = data.recent_runs || [];
+
+            if (recentRuns.length === 0) {
+                runsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No benchmark runs yet</h3>
+                        <p>Run your first benchmark to see results here!</p>
+                        <a href="/" class="start-benchmark-btn">Start Benchmark</a>
+                    </div>
+                `;
+            } else {
+                runsContainer.innerHTML = `
+                    <table class="runs-table">
+                        <thead>
+                            <tr>
+                                <th>Run ID</th>
+                                <th>Database</th>
+                                <th>Questions</th>
+                                <th>Success</th>
+                                <th>Failed</th>
+                                <th>Status</th>
+                                <th>Started</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${recentRuns.map(run => `
+                                <tr>
+                                    <td><code>${run.run_id}</code></td>
+                                    <td>${run.database_id || 'demo'}</td>
+                                    <td>${run.total_questions}</td>
+                                    <td style="color: #4ade80">${run.successful || 0}</td>
+                                    <td style="color: #f87171">${run.failed || 0}</td>
+                                    <td>
+                                        <span class="status-badge status-${run.status}">
+                                            ${run.status}
+                                        </span>
+                                    </td>
+                                    <td>${new Date(run.started_at).toLocaleString()}</td>
+                                    <td>
+                                        <button class="view-btn" onclick="viewRun('${run.run_id}')">
+                                            View Details
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+        }
+
+        async function viewRun(runId) {
+            try {
+                const response = await fetch(`${API_BASE}/api/benchmark/run/${runId}`);
+                const data = await response.json();
+                showRunDetails(data);
+            } catch (error) {
+                console.error('Failed to load run:', error);
+            }
+        }
+
+        function showRunDetails(data) {
+            const run = data.run;
+            const results = data.results || [];
+
+            // Create a modal or expand to show details
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0,0,0,0.8); z-index: 1000;
+                display: flex; align-items: center; justify-content: center;
+                padding: 20px;
+            `;
+
+            modal.innerHTML = `
+                <div style="background: var(--card-bg); border-radius: 16px; max-width: 900px; 
+                            width: 100%; max-height: 80vh; overflow: auto; padding: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2>Run: ${run.run_id}</h2>
+                        <button onclick="this.closest('div').parentElement.remove()" 
+                                style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">×</button>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                        <div><strong>Database:</strong> ${run.database_id}</div>
+                        <div><strong>Total:</strong> ${run.total_questions}</div>
+                        <div><strong>Success:</strong> <span style="color: #4ade80">${run.successful}</span></div>
+                        <div><strong>Failed:</strong> <span style="color: #f87171">${run.failed}</span></div>
+                    </div>
+                    <table class="runs-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Question</th>
+                                <th>Difficulty</th>
+                                <th>HITL</th>
+                                <th>Success</th>
+                                <th>Confidence</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${results.map(r => `
+                                <tr>
+                                    <td>${r.question_index + 1}</td>
+                                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
+                                        ${r.question}
+                                    </td>
+                                    <td>${r.difficulty}</td>
+                                    <td>${r.hitl_triggered ? '🤔 Yes' : '✓ No'}</td>
+                                    <td>${r.execution_success ? '<span style="color: #4ade80">✓</span>' : '<span style="color: #f87171">✗</span>'}</td>
+                                    <td>${(r.confidence * 100).toFixed(0)}%</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.remove();
+            });
+
+            document.body.appendChild(modal);
+        }
+
+        // Initial load
+        loadAnalytics();
+
+        // Refresh button
+        document.getElementById('refresh-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            loadAnalytics();
+        });
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadAnalytics, 30000);
+    </script>
+</body>
+
+</html>

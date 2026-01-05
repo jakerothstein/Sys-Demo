@@ -21,7 +21,41 @@
                 <h1>Text-to-SQL Research Pipeline</h1>
             </div>
             <p class="tagline">LangGraph State Machine • Semantic Disambiguation • Self-Correction</p>
+            <div class="header-actions">
+                <button id="benchmark-btn" class="btn-secondary">🧪 Run Benchmark</button>
+                <a href="/static/analytics.html" class="btn-secondary">📊 Analytics</a>
+            </div>
         </header>
+
+        <!-- Benchmark Panel (hidden by default) -->
+        <div id="benchmark-panel" class="benchmark-panel glass-card" style="display: none;">
+            <div class="benchmark-header">
+                <h3>🧪 Benchmark Mode</h3>
+                <button id="close-benchmark" class="close-btn">×</button>
+            </div>
+            <div class="benchmark-status">
+                <div class="benchmark-progress">
+                    <span id="bench-progress-text">Ready to start</span>
+                    <div class="progress-bar">
+                        <div id="bench-progress-fill" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="benchmark-stats">
+                    <span id="bench-success" class="stat-success">0 ✓</span>
+                    <span id="bench-failed" class="stat-failed">0 ✗</span>
+                    <span id="bench-hitl" class="stat-hitl">0 🤔</span>
+                </div>
+            </div>
+            <div id="benchmark-question-container" class="benchmark-question" style="display: none;">
+                <div class="question-label">Current Question:</div>
+                <div id="bench-current-question" class="current-question"></div>
+                <div id="bench-difficulty" class="difficulty-badge"></div>
+            </div>
+            <div class="benchmark-actions">
+                <button id="start-benchmark-btn" class="btn-primary">Start Benchmark</button>
+                <button id="next-question-btn" class="btn-primary" style="display: none;">Next Question →</button>
+            </div>
+        </div>
 
         <main class="main-content">
             <!-- Query Input Section -->
@@ -105,41 +139,21 @@
 
         <!-- Schema Sidebar -->
         <aside class="schema-sidebar glass-card">
-            <h3>Database Schema</h3>
-            <div class="schema-table">
-                <div class="table-name">👤 customers</div>
-                <ul class="columns">
-                    <li><span class="col-name">id</span> <span class="col-type">INTEGER PK</span></li>
-                    <li><span class="col-name">name</span> <span class="col-type">TEXT</span></li>
-                    <li><span class="col-name">email</span> <span class="col-type">TEXT</span></li>
-                    <li><span class="col-name">state</span> <span class="col-type">TEXT</span></li>
-                </ul>
+            <div class="schema-header">
+                <h3>Database Schema</h3>
+                <div class="database-selector">
+                    <select id="database-select" title="Select Database">
+                        <option value="demo">Demo (E-Commerce)</option>
+                    </select>
+                </div>
             </div>
-            <div class="schema-table">
-                <div class="table-name">📦 products</div>
-                <ul class="columns">
-                    <li><span class="col-name">id</span> <span class="col-type">INTEGER PK</span></li>
-                    <li><span class="col-name">name</span> <span class="col-type">TEXT</span></li>
-                    <li><span class="col-name">category</span> <span class="col-type">TEXT</span></li>
-                    <li><span class="col-name">price</span> <span class="col-type">DECIMAL</span></li>
-                </ul>
+            <div class="database-info">
+                <span id="db-mode-badge" class="db-badge mode-demo">Demo</span>
+                <span id="db-name-display">demo_ecommerce</span>
             </div>
-            <div class="schema-table">
-                <div class="table-name">🛒 orders</div>
-                <ul class="columns">
-                    <li><span class="col-name">id</span> <span class="col-type">INTEGER PK</span></li>
-                    <li><span class="col-name">customer_id</span> <span class="col-type">FK</span></li>
-                    <li><span class="col-name">status</span> <span class="col-type">TEXT</span></li>
-                    <li><span class="col-name">total_amount</span> <span class="col-type">DECIMAL</span></li>
-                </ul>
-            </div>
-            <div class="schema-table">
-                <div class="table-name">📋 order_items</div>
-                <ul class="columns">
-                    <li><span class="col-name">order_id</span> <span class="col-type">FK</span></li>
-                    <li><span class="col-name">product_id</span> <span class="col-type">FK</span></li>
-                    <li><span class="col-name">quantity</span> <span class="col-type">INT</span></li>
-                </ul>
+            <div id="schema-container" class="schema-tables">
+                <!-- Schema will be loaded dynamically -->
+                <div class="schema-loading">Loading schema...</div>
             </div>
         </aside>
     </div>

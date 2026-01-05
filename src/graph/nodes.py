@@ -10,7 +10,19 @@ from .state import AgentState, PipelineConfig
 
 
 def load_schema_catalog() -> Dict[str, Any]:
-    """Load the schema catalog from JSON."""
+    """Load the schema catalog - prefers current database, falls back to JSON."""
+    try:
+        # Try to get schema from current database executor
+        from src.sandbox.executor import get_current_schema, get_execution_mode
+        mode = get_execution_mode()
+        if mode.get('database'):
+            schema = get_current_schema()
+            if schema and schema.get('tables'):
+                return schema
+    except Exception:
+        pass
+    
+    # Fallback to static JSON schema
     schema_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'schema_catalog.json')
     if os.path.exists(schema_path):
         with open(schema_path, 'r') as f:
@@ -55,7 +67,9 @@ def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None
     query_lower = user_query.lower()
     detected_tables = []
     for table in schema.get('tables', {}).keys():
-        if table in query_lower or table.rstrip('s') in query_lower:
+        # Match plural/singular forms
+        singular = table.rstrip('s')
+        if table in query_lower or singular in query_lower:
             detected_tables.append(table)
     
     # Check for semantic ambiguity
@@ -86,18 +100,17 @@ def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None
     confidence = 0.5
     
     if detected_tables:
-        confidence += 0.2
-    else:
-        ambiguity_reasons.append("No specific tables detected in query")
+        confidence += 0.25
     
-    if intent != "select":
-        confidence += 0.15
+    # Clear intent boosts confidence
+    if intent in ["count", "sum", "average", "ranking"]:
+        confidence += 0.2
     
     if ambiguity_reasons:
         confidence -= 0.2 * len(ambiguity_reasons)
     
-    # Check for vague markers
-    vague_markers = ["maybe", "probably", "unsure", "?", "something", "stuff"]
+    # Check for vague markers - only truly uncertain ones
+    vague_markers = ["maybe", "probably", "unsure", "something like", "stuff"]
     if any(marker in query_lower for marker in vague_markers):
         confidence -= 0.3
         ambiguity_reasons.append("Query contains uncertainty markers")
@@ -169,37 +182,79 @@ def generate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None
 
 
 def _generate_mock(query: str, tables: List[str], error_context: str) -> List[str]:
-    """Mock SQL generation for testing without LLM."""
+    """Mock SQL generation for testing without LLM - schema-aware."""
     query_lower = query.lower()
     
-    # If we're retrying after an error, try to fix it
-    if error_context:
-        if "no such table" in error_context.lower():
-            return [f"SELECT * FROM customers LIMIT 10;"]
+    # Get current database schema for table names
+    schema = load_schema_catalog()
+    available_tables = list(schema.get('tables', {}).keys())
     
-    # Simple pattern matching
-    if "count" in query_lower and "customer" in query_lower:
+    # If we're retrying after an error, try a different table
+    if error_context and "no such table" in error_context.lower():
+        if available_tables:
+            return [f"SELECT * FROM {available_tables[0]} LIMIT 10;"]
+    
+    # Find best matching table from query
+    matched_table = None
+    for table in available_tables:
+        singular = table.rstrip('s')
+        if table in query_lower or singular in query_lower:
+            matched_table = table
+            break
+    
+    # If no match but we have detected_tables from disambiguation, use those
+    if not matched_table and tables:
+        matched_table = tables[0]
+    
+    # Fallback to first available table
+    if not matched_table and available_tables:
+        matched_table = available_tables[0]
+    elif not matched_table:
+        matched_table = "unknown_table"
+    
+    # Get columns for the matched table
+    table_info = schema.get('tables', {}).get(matched_table, {})
+    columns = list(table_info.get('columns', {}).keys())
+    
+    # Pattern matching for query types
+    if "count" in query_lower or "how many" in query_lower:
         return [
-            "SELECT COUNT(*) as customer_count FROM customers;",
-            "SELECT COUNT(id) as total FROM customers;",
-            "SELECT COUNT(*) FROM customers;"
+            f"SELECT COUNT(*) as count FROM {matched_table};",
+            f"SELECT COUNT(*) FROM {matched_table};",
         ]
-    elif "revenue" in query_lower or "sales" in query_lower:
+    elif ("highest" in query_lower or "most" in query_lower or "max" in query_lower or "earns" in query_lower):
+        # Find numeric column to order by
+        numeric_col = next((c for c in columns if 'salary' in c.lower() or 'price' in c.lower() or 'amount' in c.lower() or 'budget' in c.lower()), columns[0] if columns else '*')
         return [
-            "SELECT SUM(total_amount) as revenue FROM orders WHERE status = 'delivered';",
-            "SELECT SUM(total_amount) as total_sales FROM orders WHERE status IN ('delivered', 'shipped');",
-            "SELECT SUM(total_amount) FROM orders;"
+            f"SELECT * FROM {matched_table} ORDER BY {numeric_col} DESC LIMIT 1;",
+            f"SELECT * FROM {matched_table} ORDER BY {numeric_col} DESC LIMIT 5;",
         ]
-    elif "top" in query_lower and "customer" in query_lower:
+    elif ("lowest" in query_lower or "least" in query_lower or "min" in query_lower):
+        numeric_col = next((c for c in columns if 'salary' in c.lower() or 'price' in c.lower() or 'amount' in c.lower()), columns[0] if columns else '*')
         return [
-            "SELECT c.name, SUM(o.total_amount) as total FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id ORDER BY total DESC LIMIT 5;",
-            "SELECT c.name, COUNT(o.id) as orders FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id ORDER BY orders DESC LIMIT 5;",
-            "SELECT c.name, SUM(o.total_amount) FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.name ORDER BY SUM(o.total_amount) DESC LIMIT 5;"
+            f"SELECT * FROM {matched_table} ORDER BY {numeric_col} ASC LIMIT 1;",
         ]
-    elif tables:
-        return [f"SELECT * FROM {tables[0]} LIMIT 10;"]
-    else:
-        return ["SELECT * FROM customers LIMIT 10;"]
+    elif "total" in query_lower or "sum" in query_lower or "budget" in query_lower:
+        numeric_col = next((c for c in columns if 'salary' in c.lower() or 'price' in c.lower() or 'amount' in c.lower() or 'budget' in c.lower()), None)
+        if numeric_col:
+            return [
+                f"SELECT SUM({numeric_col}) as total FROM {matched_table};",
+                f"SELECT {numeric_col}, COUNT(*) FROM {matched_table} GROUP BY {numeric_col};",
+            ]
+    elif "show" in query_lower or "list" in query_lower or "all" in query_lower:
+        return [
+            f"SELECT * FROM {matched_table} LIMIT 20;",
+            f"SELECT * FROM {matched_table};",
+        ]
+    elif "active" in query_lower or "status" in query_lower:
+        status_col = next((c for c in columns if 'status' in c.lower()), None)
+        if status_col:
+            return [
+                f"SELECT * FROM {matched_table} WHERE {status_col} = 'active' LIMIT 20;",
+            ]
+    
+    # Default: just select from matched table
+    return [f"SELECT * FROM {matched_table} LIMIT 10;"]
 
 
 def _generate_with_llm(llm_client, query: str, schema: str, examples: List[dict], 

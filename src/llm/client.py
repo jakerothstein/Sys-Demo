@@ -1,6 +1,7 @@
 """
 Unified LLM Client supporting Anthropic Claude and Google Gemini.
 """
+import json
 import os
 from typing import Optional, Dict, Any
 from abc import ABC, abstractmethod
@@ -103,32 +104,92 @@ class MockLLMClient(BaseLLMClient):
         """Return mock responses based on prompt content."""
         prompt_lower = prompt.lower()
         
-        # Mock disambiguation
-        if "analyze" in prompt_lower and "ambiguity" in prompt_lower:
-            return '{"confidence": 0.85, "is_ambiguous": false, "reasoning": "Query is clear."}'
+        # Mock disambiguation - detect the new LLM-first prompt format
+        if "sql analyst" in prompt_lower and "analyze" in prompt_lower:
+            # Extract just the user query to check for vagueness
+            user_query = ""
+            for line in prompt.split('\n'):
+                if line.strip().lower().startswith('user query:'):
+                    user_query = line.split(':', 1)[1].strip().strip('"').lower()
+                    break
+            
+            # Check for vague markers only in the user query
+            is_vague = any(marker in user_query for marker in ["?", "maybe", "probably", "stuff", "something like"])
+            tables = self._extract_tables_from_prompt(prompt)
+            
+            if is_vague:
+                return json.dumps({
+                    "confidence": 0.4,
+                    "is_ambiguous": True,
+                    "detected_tables": tables[:2] if tables else [],
+                    "detected_intent": "select",
+                    "ambiguity_reasons": ["Query is unclear or incomplete"],
+                    "suggested_clarification": "Could you please clarify what you're looking for?"
+                })
+            else:
+                # Detect intent from query
+                intent = "select"
+                if "count" in prompt_lower or "how many" in prompt_lower:
+                    intent = "count"
+                elif "total" in prompt_lower or "sum" in prompt_lower:
+                    intent = "sum"
+                elif "top" in prompt_lower or "highest" in prompt_lower:
+                    intent = "ranking"
+                
+                return json.dumps({
+                    "confidence": 0.85,
+                    "is_ambiguous": False,
+                    "detected_tables": tables[:2] if tables else ["customers"],
+                    "detected_intent": intent,
+                    "ambiguity_reasons": [],
+                    "suggested_clarification": None
+                })
         
         # Mock SQL generation - extract table names from schema in prompt
-        if "generate" in prompt_lower and "sql" in prompt_lower:
-            # Try to extract table names from the schema in the prompt
+        if "sql developer" in prompt_lower or ("generate" in prompt_lower and "sql" in prompt_lower):
             tables = self._extract_tables_from_prompt(prompt)
-            primary_table = tables[0] if tables else "unknown_table"
+            primary_table = tables[0] if tables else "customers"
             
             if "count" in prompt_lower or "how many" in prompt_lower:
-                return f"""SQL_1: SELECT COUNT(*) as count FROM {primary_table};
-SQL_2: SELECT COUNT(*) FROM {primary_table};
-SQL_3: SELECT COUNT(*) as total FROM {primary_table};"""
-            elif "highest" in prompt_lower or "most" in prompt_lower or "max" in prompt_lower:
-                return f"""SQL_1: SELECT * FROM {primary_table} ORDER BY salary DESC LIMIT 1;
-SQL_2: SELECT * FROM {primary_table} ORDER BY salary DESC LIMIT 5;
-SQL_3: SELECT * FROM {primary_table} LIMIT 10;"""
+                return json.dumps({
+                    "sql_queries": [
+                        f"SELECT COUNT(*) as count FROM {primary_table};",
+                        f"SELECT COUNT(*) FROM {primary_table};",
+                        f"SELECT COUNT(*) as total FROM {primary_table};"
+                    ],
+                    "reasoning": "Counting all rows in the table"
+                })
+            elif "highest" in prompt_lower or "most" in prompt_lower or "max" in prompt_lower or "top" in prompt_lower:
+                return json.dumps({
+                    "sql_queries": [
+                        f"SELECT * FROM {primary_table} ORDER BY id DESC LIMIT 5;",
+                        f"SELECT * FROM {primary_table} ORDER BY id DESC LIMIT 10;",
+                        f"SELECT * FROM {primary_table} LIMIT 5;"
+                    ],
+                    "reasoning": "Getting top records from the table"
+                })
             elif "show" in prompt_lower or "list" in prompt_lower:
-                return f"""SQL_1: SELECT * FROM {primary_table} LIMIT 20;
-SQL_2: SELECT * FROM {primary_table};
-SQL_3: SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"""
+                return json.dumps({
+                    "sql_queries": [
+                        f"SELECT * FROM {primary_table} LIMIT 20;",
+                        f"SELECT * FROM {primary_table};",
+                        f"SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"
+                    ],
+                    "reasoning": "Listing records from the table"
+                })
             else:
-                return f"""SQL_1: SELECT * FROM {primary_table} LIMIT 10;
-SQL_2: SELECT * FROM {primary_table};
-SQL_3: SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"""
+                return json.dumps({
+                    "sql_queries": [
+                        f"SELECT * FROM {primary_table} LIMIT 10;",
+                        f"SELECT * FROM {primary_table};",
+                        f"SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"
+                    ],
+                    "reasoning": "General query on the table"
+                })
+        
+        # Legacy format handling (backward compatibility)
+        if "analyze" in prompt_lower and "ambiguity" in prompt_lower:
+            return '{"confidence": 0.85, "is_ambiguous": false, "reasoning": "Query is clear."}'
         
         # Default response
         return "Mock response for: " + prompt[:100]
@@ -138,9 +199,10 @@ SQL_3: SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"""
         tables = []
         lines = prompt.split('\n')
         for line in lines:
-            # Look for "Table: tablename" pattern
-            if line.strip().startswith('Table:'):
-                table_name = line.split(':', 1)[1].strip()
+            # Look for "Table: tablename" or "### Table: tablename" pattern
+            line_stripped = line.strip()
+            if line_stripped.startswith('Table:') or line_stripped.startswith('### Table:'):
+                table_name = line_stripped.split(':', 1)[1].strip()
                 if table_name:
                     tables.append(table_name)
         return tables

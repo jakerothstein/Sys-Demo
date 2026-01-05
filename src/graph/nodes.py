@@ -1,9 +1,11 @@
 """
 Graph Node Functions for LangGraph Pipeline.
 Each node is a function that takes AgentState and returns a partial state update.
+LLM-First Design: All logic uses LLM prompts rather than regex/keyword matching.
 """
 import json
 import os
+import re
 from typing import Dict, Any, List
 
 from .state import AgentState, PipelineConfig
@@ -31,110 +33,176 @@ def load_schema_catalog() -> Dict[str, Any]:
 
 
 def format_schema_for_prompt(schema: Dict[str, Any]) -> str:
-    """Format schema catalog into a prompt-friendly string."""
+    """
+    Format schema catalog into a comprehensive prompt-friendly string.
+    Includes table descriptions, column types, primary keys, foreign keys,
+    and relationship summaries for LLM understanding.
+    """
     if not schema:
         return "No schema available."
     
     lines = [f"Database: {schema.get('database_name', 'unknown')}\n"]
     
+    # Track foreign key relationships for summary
+    relationships = []
+    
     for table_name, table_info in schema.get('tables', {}).items():
-        lines.append(f"\nTable: {table_name}")
+        lines.append(f"\n### Table: {table_name}")
         lines.append(f"Description: {table_info.get('description', '')}")
         lines.append("Columns:")
         
         for col_name, col_info in table_info.get('columns', {}).items():
             col_type = col_info.get('type', 'TEXT')
             col_desc = col_info.get('description', '')
-            pk = " [PK]" if col_info.get('is_primary_key') else ""
-            fk = f" [FK -> {col_info['foreign_key']}]" if col_info.get('foreign_key') else ""
-            samples = f" (e.g., {', '.join(col_info['sample_values'])})" if col_info.get('sample_values') else ""
             
-            lines.append(f"  - {col_name} ({col_type}){pk}{fk}: {col_desc}{samples}")
+            # Build column annotation
+            annotations = []
+            if col_info.get('is_primary_key'):
+                annotations.append("PRIMARY KEY")
+            if col_info.get('foreign_key'):
+                fk_target = col_info['foreign_key']
+                annotations.append(f"FOREIGN KEY -> {fk_target}")
+                relationships.append(f"{table_name}.{col_name} references {fk_target}")
+            
+            annotation_str = f" [{', '.join(annotations)}]" if annotations else ""
+            samples = ""
+            if col_info.get('sample_values'):
+                sample_list = ', '.join(f"'{v}'" for v in col_info['sample_values'][:3])
+                samples = f" (examples: {sample_list})"
+            
+            lines.append(f"  - {col_name}: {col_type}{annotation_str} - {col_desc}{samples}")
+    
+    # Add relationship summary section
+    if relationships:
+        lines.append("\n### Table Relationships (Foreign Keys):")
+        for rel in relationships:
+            lines.append(f"  - {rel}")
+    
+    # Add semantic notes if present
+    semantic_notes = schema.get('semantic_notes', {})
+    if semantic_notes:
+        lines.append("\n### Semantic Notes (Ambiguous Terms):")
+        for term, info in semantic_notes.items():
+            if info.get('ambiguous'):
+                interpretations = info.get('possible_interpretations', [])
+                interp_str = ', '.join(i.get('term', '') for i in interpretations)
+                lines.append(f"  - '{term}' can mean: {interp_str}")
     
     return "\n".join(lines)
 
 
+def _parse_json_from_response(response: str) -> Dict[str, Any]:
+    """
+    Extract and parse JSON from an LLM response.
+    Handles responses with surrounding text or markdown code blocks.
+    """
+    # Try to find JSON in code blocks first
+    code_block_match = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', response)
+    if code_block_match:
+        try:
+            return json.loads(code_block_match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to find raw JSON object
+    json_match = re.search(r'\{[\s\S]*\}', response)
+    if json_match:
+        try:
+            return json.loads(json_match.group())
+        except json.JSONDecodeError:
+            pass
+    
+    # Return empty dict if no valid JSON found
+    return {}
+
+
 def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
     """
-    Analyze the query for ambiguity and semantic clarity.
-    Returns confidence score and detected entities.
+    Analyze the query for ambiguity and semantic clarity using LLM.
+    Returns confidence score, detected entities, and clarification needs.
     """
     user_query = state.get('user_query', '')
     schema = load_schema_catalog()
     schema_context = format_schema_for_prompt(schema)
     
-    # Detect tables mentioned
-    query_lower = user_query.lower()
-    detected_tables = []
-    for table in schema.get('tables', {}).keys():
-        # Match plural/singular forms
-        singular = table.rstrip('s')
-        if table in query_lower or singular in query_lower:
-            detected_tables.append(table)
-    
-    # Check for semantic ambiguity
-    ambiguity_reasons = []
-    semantic_notes = schema.get('semantic_notes', {})
-    
-    for term, info in semantic_notes.items():
-        if term in query_lower and info.get('ambiguous'):
-            interpretations = [i['term'] for i in info.get('possible_interpretations', [])]
-            ambiguity_reasons.append(f"'{term}' is ambiguous: could mean {', '.join(interpretations)}")
-    
-    # Detect intent
-    intent = "select"
-    intent_keywords = {
-        "count": ["count", "how many", "number of"],
-        "sum": ["total", "sum", "revenue", "sales"],
-        "average": ["average", "avg", "mean"],
-        "ranking": ["top", "best", "highest", "lowest"],
-        "filter": ["where", "with", "from", "in"]
-    }
-    
-    for intent_type, keywords in intent_keywords.items():
-        if any(kw in query_lower for kw in keywords):
-            intent = intent_type
-            break
-    
-    # Calculate confidence
-    confidence = 0.5
-    
-    if detected_tables:
-        confidence += 0.25
-    
-    # Clear intent boosts confidence
-    if intent in ["count", "sum", "average", "ranking"]:
-        confidence += 0.2
-    
-    if ambiguity_reasons:
-        confidence -= 0.2 * len(ambiguity_reasons)
-    
-    # Check for vague markers - only truly uncertain ones
-    vague_markers = ["maybe", "probably", "unsure", "something like", "stuff"]
-    if any(marker in query_lower for marker in vague_markers):
-        confidence -= 0.3
-        ambiguity_reasons.append("Query contains uncertainty markers")
-    
-    confidence = max(0.1, min(1.0, confidence))
-    is_ambiguous = confidence < config.confidence_threshold
-    
-    # Determine if clarification needed
-    needs_clarification = is_ambiguous and not state.get('user_feedback')
-    
-    clarification_message = ""
-    if needs_clarification and ambiguity_reasons:
-        clarification_message = f"I need clarification:\n" + "\n".join(f"- {r}" for r in ambiguity_reasons)
-    
-    return {
-        'confidence_score': round(confidence, 2),
-        'is_ambiguous': is_ambiguous,
-        'ambiguity_reasons': ambiguity_reasons,
-        'detected_tables': detected_tables,
-        'detected_intent': intent,
+    # Build disambiguation prompt for LLM
+    prompt = f"""You are an expert SQL analyst. Analyze the following natural language query for a database.
+
+DATABASE SCHEMA:
+{schema_context}
+
+USER QUERY: "{user_query}"
+
+Analyze this query and return a JSON object with the following structure:
+{{
+    "confidence": <float 0.0-1.0 indicating how clear and unambiguous the query is>,
+    "is_ambiguous": <boolean - true if the query is unclear or could have multiple interpretations>,
+    "detected_tables": <list of table names from the schema that are relevant to this query>,
+    "detected_intent": <string: one of "select", "count", "sum", "average", "ranking", "filter", "join", "aggregate">,
+    "ambiguity_reasons": <list of strings explaining why the query is ambiguous, empty if clear>,
+    "suggested_clarification": <string with a clarifying question to ask the user, or null if not needed>
+}}
+
+Consider:
+- Are the table references clear?
+- Is the aggregation or intent unambiguous?
+- Are there any terms that could have multiple meanings (e.g., "sales", "top customers")?
+- Does the user need to specify filters, grouping, or ordering?
+
+Return ONLY the JSON object, no other text."""
+
+    # Default response for fallback
+    default_response = {
+        'confidence_score': 0.5,
+        'is_ambiguous': True,
+        'ambiguity_reasons': ["Unable to analyze query"],
+        'detected_tables': [],
+        'detected_intent': "select",
         'schema_context': schema_context,
-        'needs_clarification': needs_clarification,
-        'clarification_message': clarification_message
+        'needs_clarification': True,
+        'clarification_message': "Could you please clarify your query?"
     }
+    
+    if not llm_client:
+        # Without LLM, return conservative defaults
+        return default_response
+    
+    try:
+        response = llm_client.generate(prompt)
+        parsed = _parse_json_from_response(response)
+        
+        if not parsed:
+            return default_response
+        
+        confidence = float(parsed.get('confidence', 0.5))
+        is_ambiguous = parsed.get('is_ambiguous', confidence < config.confidence_threshold)
+        ambiguity_reasons = parsed.get('ambiguity_reasons', [])
+        
+        # Determine if clarification is needed
+        needs_clarification = is_ambiguous and not state.get('user_feedback')
+        
+        clarification_message = ""
+        if needs_clarification:
+            suggested = parsed.get('suggested_clarification')
+            if suggested:
+                clarification_message = suggested
+            elif ambiguity_reasons:
+                clarification_message = f"I need clarification:\n" + "\n".join(f"- {r}" for r in ambiguity_reasons)
+        
+        return {
+            'confidence_score': round(confidence, 2),
+            'is_ambiguous': is_ambiguous,
+            'ambiguity_reasons': ambiguity_reasons,
+            'detected_tables': parsed.get('detected_tables', []),
+            'detected_intent': parsed.get('detected_intent', 'select'),
+            'schema_context': schema_context,
+            'needs_clarification': needs_clarification,
+            'clarification_message': clarification_message
+        }
+        
+    except Exception as e:
+        print(f"Disambiguation error: {e}")
+        return default_response
 
 
 def retrieve_examples_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any]:
@@ -154,143 +222,108 @@ def retrieve_examples_node(state: AgentState, config: PipelineConfig) -> Dict[st
 
 def generate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
     """
-    Generate SQL variations based on the query and context.
+    Generate SQL using LLM based on the query, schema, and context.
     Generates multiple variations for consistency checking.
     """
     user_query = state.get('user_query', '')
     if state.get('user_feedback'):
-        user_query = f"{user_query} (User clarification: {state['user_feedback']})"
+        user_query = f"{user_query}\n\nUser clarification: {state['user_feedback']}"
     
     schema_context = state.get('schema_context', '')
     few_shot_examples = state.get('few_shot_examples', [])
-    detected_tables = state.get('detected_tables', [])
     error_context = state.get('debug_analysis', '')
+    num_variations = config.num_sql_variations
     
-    # Use LLM if available, otherwise use mock
-    if llm_client:
-        generated_sqls = _generate_with_llm(
-            llm_client, user_query, schema_context, few_shot_examples, 
-            error_context, config.num_sql_variations
-        )
-    else:
-        generated_sqls = _generate_mock(user_query, detected_tables, error_context)
+    if not llm_client:
+        # Without LLM, return a placeholder that will likely fail gracefully
+        return {
+            'generated_sqls': ["SELECT 1;"],
+            'selected_sql': "SELECT 1;"
+        }
     
-    return {
-        'generated_sqls': generated_sqls,
-        'selected_sql': generated_sqls[0] if generated_sqls else ""
-    }
-
-
-def _generate_mock(query: str, tables: List[str], error_context: str) -> List[str]:
-    """Mock SQL generation for testing without LLM - schema-aware."""
-    query_lower = query.lower()
-    
-    # Get current database schema for table names
-    schema = load_schema_catalog()
-    available_tables = list(schema.get('tables', {}).keys())
-    
-    # If we're retrying after an error, try a different table
-    if error_context and "no such table" in error_context.lower():
-        if available_tables:
-            return [f"SELECT * FROM {available_tables[0]} LIMIT 10;"]
-    
-    # Find best matching table from query
-    matched_table = None
-    for table in available_tables:
-        singular = table.rstrip('s')
-        if table in query_lower or singular in query_lower:
-            matched_table = table
-            break
-    
-    # If no match but we have detected_tables from disambiguation, use those
-    if not matched_table and tables:
-        matched_table = tables[0]
-    
-    # Fallback to first available table
-    if not matched_table and available_tables:
-        matched_table = available_tables[0]
-    elif not matched_table:
-        matched_table = "unknown_table"
-    
-    # Get columns for the matched table
-    table_info = schema.get('tables', {}).get(matched_table, {})
-    columns = list(table_info.get('columns', {}).keys())
-    
-    # Pattern matching for query types
-    if "count" in query_lower or "how many" in query_lower:
-        return [
-            f"SELECT COUNT(*) as count FROM {matched_table};",
-            f"SELECT COUNT(*) FROM {matched_table};",
-        ]
-    elif ("highest" in query_lower or "most" in query_lower or "max" in query_lower or "earns" in query_lower):
-        # Find numeric column to order by
-        numeric_col = next((c for c in columns if 'salary' in c.lower() or 'price' in c.lower() or 'amount' in c.lower() or 'budget' in c.lower()), columns[0] if columns else '*')
-        return [
-            f"SELECT * FROM {matched_table} ORDER BY {numeric_col} DESC LIMIT 1;",
-            f"SELECT * FROM {matched_table} ORDER BY {numeric_col} DESC LIMIT 5;",
-        ]
-    elif ("lowest" in query_lower or "least" in query_lower or "min" in query_lower):
-        numeric_col = next((c for c in columns if 'salary' in c.lower() or 'price' in c.lower() or 'amount' in c.lower()), columns[0] if columns else '*')
-        return [
-            f"SELECT * FROM {matched_table} ORDER BY {numeric_col} ASC LIMIT 1;",
-        ]
-    elif "total" in query_lower or "sum" in query_lower or "budget" in query_lower:
-        numeric_col = next((c for c in columns if 'salary' in c.lower() or 'price' in c.lower() or 'amount' in c.lower() or 'budget' in c.lower()), None)
-        if numeric_col:
-            return [
-                f"SELECT SUM({numeric_col}) as total FROM {matched_table};",
-                f"SELECT {numeric_col}, COUNT(*) FROM {matched_table} GROUP BY {numeric_col};",
-            ]
-    elif "show" in query_lower or "list" in query_lower or "all" in query_lower:
-        return [
-            f"SELECT * FROM {matched_table} LIMIT 20;",
-            f"SELECT * FROM {matched_table};",
-        ]
-    elif "active" in query_lower or "status" in query_lower:
-        status_col = next((c for c in columns if 'status' in c.lower()), None)
-        if status_col:
-            return [
-                f"SELECT * FROM {matched_table} WHERE {status_col} = 'active' LIMIT 20;",
-            ]
-    
-    # Default: just select from matched table
-    return [f"SELECT * FROM {matched_table} LIMIT 10;"]
-
-
-def _generate_with_llm(llm_client, query: str, schema: str, examples: List[dict], 
-                       error_context: str, num_variations: int) -> List[str]:
-    """Generate SQL using LLM."""
-    # Format few-shot examples
+    # Build SQL generation prompt
     examples_text = ""
-    for ex in examples:
-        examples_text += f"\nQuestion: {ex['question']}\nSQL: {ex['sql']}\n"
+    if few_shot_examples:
+        examples_text = "\n\nSIMILAR EXAMPLES:\n"
+        for ex in few_shot_examples:
+            examples_text += f"Question: {ex.get('question', '')}\nSQL: {ex.get('sql', '')}\n\n"
     
+    error_section = ""
+    if error_context:
+        error_section = f"""
+PREVIOUS ERROR (Self-Correction Required):
+{error_context}
+
+Learn from this error and generate corrected SQL that avoids this issue.
+"""
+
     prompt = f"""You are an expert SQL developer. Generate {num_variations} different valid SQL queries for the following question.
 
-Schema:
-{schema}
-
-Similar Examples:
+DATABASE SCHEMA:
+{schema_context}
 {examples_text}
+{error_section}
+QUESTION: {user_query}
 
-{"Previous Error to Fix: " + error_context if error_context else ""}
+Return a JSON object with this structure:
+{{
+    "sql_queries": [
+        "<first SQL query>",
+        "<second SQL query>",
+        "<third SQL query>"
+    ],
+    "reasoning": "<brief explanation of your approach>"
+}}
 
-Question: {query}
+Guidelines:
+- Generate exactly {num_variations} different but semantically equivalent SQL queries
+- All queries should produce the same result but may use different syntax or approaches
+- Use proper table and column names from the schema
+- Handle JOINs appropriately using foreign key relationships
+- Use appropriate aggregations (COUNT, SUM, AVG, etc.) based on the query intent
+- Include appropriate LIMIT clauses for open-ended queries
 
-Return exactly {num_variations} SQL queries, each on a new line, prefixed with "SQL_1:", "SQL_2:", etc.
-Only return the SQL, no explanations."""
+Return ONLY the JSON object, no other text."""
 
-    response = llm_client.generate(prompt)
-    
-    # Parse response
-    sqls = []
-    for line in response.split('\n'):
-        if line.strip().startswith('SQL_'):
-            sql = line.split(':', 1)[1].strip() if ':' in line else line.strip()
-            if sql:
-                sqls.append(sql)
-    
-    return sqls or ["SELECT * FROM customers LIMIT 10;"]
+    try:
+        response = llm_client.generate(prompt)
+        parsed = _parse_json_from_response(response)
+        
+        if parsed and 'sql_queries' in parsed:
+            sqls = parsed['sql_queries']
+            if isinstance(sqls, list) and sqls:
+                return {
+                    'generated_sqls': sqls,
+                    'selected_sql': sqls[0]
+                }
+        
+        # Try to parse SQL_N: format as fallback
+        sqls = []
+        for line in response.split('\n'):
+            line = line.strip()
+            if line.startswith('SQL_') and ':' in line:
+                sql = line.split(':', 1)[1].strip()
+                if sql:
+                    sqls.append(sql)
+        
+        if sqls:
+            return {
+                'generated_sqls': sqls,
+                'selected_sql': sqls[0]
+            }
+        
+        # Last resort: return placeholder
+        return {
+            'generated_sqls': ["SELECT 1;"],
+            'selected_sql': "SELECT 1;"
+        }
+        
+    except Exception as e:
+        print(f"SQL generation error: {e}")
+        return {
+            'generated_sqls': ["SELECT 1;"],
+            'selected_sql': "SELECT 1;"
+        }
 
 
 def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
@@ -380,23 +413,41 @@ def execute_sql_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any
 
 def debug_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
     """
-    Analyze the error and prepare context for retry.
+    Analyze SQL execution error and prepare context for self-healing retry.
+    Feeds the error message and failed SQL back into the generation context
+    so the LLM can learn from the mistake and generate corrected SQL.
     """
     error = state.get('error_trace', '')
-    sql = state.get('selected_sql', '')
+    failed_sql = state.get('selected_sql', '')
     retry_count = state.get('retry_count', 0)
+    schema_context = state.get('schema_context', '')
     
-    # Simple error analysis
-    analysis = f"Error: {error}\n"
+    # Build comprehensive debug analysis for LLM self-correction
+    analysis_parts = [
+        f"FAILED SQL:\n{failed_sql}",
+        f"\nERROR MESSAGE:\n{error}",
+        f"\nRETRY ATTEMPT: {retry_count + 1} of {config.max_retries}"
+    ]
     
+    # Add specific guidance based on error type
     if "no such table" in error.lower():
-        analysis += "Issue: Table name is incorrect. Check schema for valid table names."
+        analysis_parts.append("\nDIAGNOSIS: Table name is incorrect. Review the schema carefully for valid table names.")
+    elif "no such column" in error.lower():
+        analysis_parts.append("\nDIAGNOSIS: Column name is incorrect. Check the schema for valid column names in the relevant table.")
     elif "syntax error" in error.lower():
-        analysis += "Issue: SQL syntax is invalid. Simplify the query."
+        analysis_parts.append("\nDIAGNOSIS: SQL syntax is invalid. Simplify the query and check for missing keywords, parentheses, or quotes.")
     elif "ambiguous column" in error.lower():
-        analysis += "Issue: Column reference is ambiguous. Use table.column notation."
+        analysis_parts.append("\nDIAGNOSIS: Column reference is ambiguous. Use fully qualified table.column notation for all columns in JOINs.")
+    elif "near" in error.lower():
+        analysis_parts.append("\nDIAGNOSIS: Syntax error near a specific token. Check for typos and proper SQL formatting.")
     else:
-        analysis += "Issue: Unknown error. Attempting alternative approach."
+        analysis_parts.append("\nDIAGNOSIS: Unknown error. Try a simpler query approach or alternative syntax.")
+    
+    # Add schema reminder for context
+    if schema_context:
+        analysis_parts.append(f"\nAVAILABLE SCHEMA (for reference):\n{schema_context[:1000]}...")
+    
+    analysis = "\n".join(analysis_parts)
     
     return {
         'debug_analysis': analysis,

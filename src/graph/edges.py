@@ -43,7 +43,16 @@ def should_generate_or_clarify(state: AgentState, config: PipelineConfig) -> Lit
 def should_execute_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["execute_sql", "ask_user"]:
     """
     After SQL generation, check consistency before execution.
+    
+    Logic:
+    - If confidence is very high (>= 0.9), proceed anyway (query is clear)
+    - If consistency failed and no user feedback, ask for clarification
+    - Otherwise execute
     """
+    # High confidence overrides consistency concerns
+    if state.get('confidence_score', 0) >= 0.9:
+        return "execute_sql"
+    
     if not state.get('consistency_passed', True) and not state.get('user_feedback'):
         return "ask_user"
     

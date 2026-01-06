@@ -233,8 +233,15 @@ Return ONLY the JSON object, no other text."""
             return default_response
         
         confidence = float(parsed.get('confidence', 0.5))
-        is_ambiguous = parsed.get('is_ambiguous', confidence < config.confidence_threshold)
-        ambiguity_reasons = parsed.get('ambiguity_reasons', [])
+        
+        # Override is_ambiguous if confidence is very high (>= 0.9)
+        # This prevents unnecessary HITL triggers when the LLM is confident
+        if confidence >= 0.9:
+            is_ambiguous = False
+            ambiguity_reasons = []
+        else:
+            is_ambiguous = parsed.get('is_ambiguous', confidence < config.confidence_threshold)
+            ambiguity_reasons = parsed.get('ambiguity_reasons', [])
         
         # Determine if clarification is needed
         needs_clarification = is_ambiguous and not state.get('user_feedback')

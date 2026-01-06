@@ -116,7 +116,14 @@
                 <div class="result-card glass-card collapsible">
                     <div class="card-header" onclick="toggleCard(this)">
                         <h3>Generated SQL</h3>
-                        <span class="toggle-icon">▼</span>
+                        <div class="card-actions">
+                            <button id="save-example-btn" class="btn-small"
+                                onclick="event.stopPropagation(); saveAsExample();"
+                                title="Save this query as a few-shot example">
+                                💾 Save as Example
+                            </button>
+                            <span class="toggle-icon">▼</span>
+                        </div>
                     </div>
                     <div class="card-content">
                         <pre id="sql-output" class="code-block"><code></code></pre>

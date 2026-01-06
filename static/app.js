@@ -699,8 +699,114 @@ style.textContent = `
         display: flex;
         gap: 10px;
     }
+    
+    /* Save Example Button Styles */
+    .card-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .btn-small {
+        padding: 4px 10px;
+        font-size: 0.75rem;
+        background: rgba(34, 197, 94, 0.2);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        border-radius: 6px;
+        color: #4ade80;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-small:hover {
+        background: rgba(34, 197, 94, 0.3);
+    }
+    .btn-small:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
 `;
 document.head.appendChild(style);
+
+
+// ============== SAVE AS EXAMPLE ==============
+
+// Store the current result for saving
+let currentResult = null;
+let currentClarification = null;  // Track HITL clarification
+
+// Override handleResult to store the result
+const originalHandleResult = handleResult;
+handleResult = function (result) {
+    currentResult = result;
+    originalHandleResult(result);
+};
+
+// Track when feedback is submitted (capture before it's cleared)
+feedbackBtn.addEventListener('click', () => {
+    currentClarification = feedbackInput.value.trim();
+}, true);
+
+// Save current query as example
+async function saveAsExample() {
+    const query = queryInput.value.trim();
+    const sql = currentResult?.sql;
+
+    if (!query || !sql) {
+        showNotification('No query to save', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('save-example-btn');
+    btn.disabled = true;
+    btn.textContent = '💾 Saving...';
+
+    try {
+        const payload = {
+            question: query,
+            sql: sql,
+            intent: currentResult?.detected_intent || 'user_saved',
+            tables: currentResult?.detected_tables || [],
+            difficulty: 'medium'
+        };
+
+        // Include clarification if one was provided
+        if (currentClarification) {
+            payload.clarification = currentClarification;
+        }
+
+        const response = await fetch(`${API_BASE}/api/examples/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const msg = currentClarification
+                ? `Example saved with clarification! (${result.total_examples} total)`
+                : `Example saved! (${result.total_examples} total)`;
+            showNotification(msg, 'success');
+            btn.textContent = '✓ Saved!';
+            currentClarification = null;  // Reset after saving
+            setTimeout(() => {
+                btn.textContent = '💾 Save as Example';
+                btn.disabled = false;
+            }, 2000);
+        } else {
+            showNotification(result.error || 'Failed to save', 'error');
+            btn.textContent = '💾 Save as Example';
+            btn.disabled = false;
+        }
+    } catch (error) {
+        console.error('Failed to save example:', error);
+        showNotification('Failed to save example', 'error');
+        btn.textContent = '💾 Save as Example';
+        btn.disabled = false;
+    }
+}
+
+// Make saveAsExample available globally
+window.saveAsExample = saveAsExample;
 
 
 // ============== BENCHMARK MODE ==============

@@ -189,6 +189,70 @@ def get_examples():
     return jsonify({"examples": []})
 
 
+@app.route('/api/examples/save', methods=['POST'])
+def save_example():
+    """Save a successful query as a new few-shot example."""
+    import json
+    from datetime import datetime
+    
+    data = request.json
+    question = data.get('question', '').strip()
+    sql = data.get('sql', '').strip()
+    intent = data.get('intent', 'user_saved')
+    tables = data.get('tables', [])
+    difficulty = data.get('difficulty', 'medium')
+    clarification = data.get('clarification', '').strip()  # HITL clarification if provided
+    
+    if not question or not sql:
+        return jsonify({"error": "Question and SQL are required"}), 400
+    
+    examples_path = os.path.join(os.path.dirname(__file__), 'data', 'few_shot_examples.json')
+    
+    try:
+        # Load existing examples
+        if os.path.exists(examples_path):
+            with open(examples_path, 'r') as f:
+                examples_data = json.load(f)
+        else:
+            examples_data = {"examples": []}
+        
+        # Generate new ID
+        existing_ids = [ex.get('id', '') for ex in examples_data.get('examples', [])]
+        new_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Create new example
+        new_example = {
+            "id": new_id,
+            "question": question,
+            "sql": sql,
+            "intent": intent,
+            "tables": tables if tables else [],
+            "difficulty": difficulty,
+            "saved_at": datetime.now().isoformat(),
+            "source": "user_saved"
+        }
+        
+        # Add clarification if provided (for HITL queries)
+        if clarification:
+            new_example["clarification"] = clarification
+        
+        # Append and save
+        examples_data['examples'].append(new_example)
+        
+        with open(examples_path, 'w') as f:
+            json.dump(examples_data, f, indent=4)
+        
+        return jsonify({
+            "success": True,
+            "message": "Example saved successfully",
+            "example": new_example,
+            "total_examples": len(examples_data['examples'])
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to save example: {str(e)}"}), 500
+
+
 @app.route('/api/databases', methods=['GET'])
 def list_databases():
     """List available benchmark databases."""

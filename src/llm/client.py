@@ -1,5 +1,6 @@
 """
 Unified LLM Client supporting Anthropic Claude and Google Gemini.
+Supports native structured outputs for guaranteed valid JSON responses.
 """
 import json
 import os
@@ -11,8 +12,18 @@ class BaseLLMClient(ABC):
     """Abstract base class for LLM clients."""
     
     @abstractmethod
-    def generate(self, prompt: str, **kwargs) -> str:
-        """Generate a response from the LLM."""
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+        """Generate a response from the LLM.
+        
+        Args:
+            prompt: The input prompt
+            response_schema: Optional JSON schema dict to enforce structured output.
+                             When provided, the response is guaranteed to be valid JSON.
+            **kwargs: Additional arguments
+            
+        Returns:
+            Raw response text (guaranteed valid JSON if response_schema provided)
+        """
         pass
     
     @abstractmethod
@@ -40,16 +51,31 @@ class AnthropicClient(BaseLLMClient):
     def is_available(self) -> bool:
         return self.client is not None
     
-    def generate(self, prompt: str, max_tokens: int = 2000, **kwargs) -> str:
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, max_tokens: int = 2000, **kwargs) -> str:
         if not self.is_available():
             raise RuntimeError("Anthropic client not available")
         
-        message = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            temperature=self.temperature,
-            messages=[{"role": "user", "content": prompt}]
-        )
+        # Build message parameters
+        message_params = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "temperature": self.temperature,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        
+        # Use structured outputs when schema is provided
+        if response_schema:
+            # Use the beta API with structured outputs
+            message = self.client.beta.messages.create(
+                **message_params,
+                betas=["structured-outputs-2025-11-13"],
+                output_format={
+                    "type": "json_schema",
+                    "json_schema": response_schema
+                }
+            )
+        else:
+            message = self.client.messages.create(**message_params)
         
         return message.content[0].text
 
@@ -57,7 +83,7 @@ class AnthropicClient(BaseLLMClient):
 class GoogleClient(BaseLLMClient):
     """Google Gemini client."""
     
-    def __init__(self, model: str = "gemini-2.0-flash", temperature: float = 0.1):
+    def __init__(self, model: str = "gemini-2.5-flash", temperature: float = 0.1):
         self.model = model
         self.temperature = temperature
         self.api_key = os.environ.get("GOOGLE_API_KEY")
@@ -74,14 +100,22 @@ class GoogleClient(BaseLLMClient):
     def is_available(self) -> bool:
         return self.client is not None
     
-    def generate(self, prompt: str, **kwargs) -> str:
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         if not self.is_available():
             raise RuntimeError("Google client not available")
         
         try:
+            # Build generation config
+            generation_config = {"temperature": self.temperature}
+            
+            # Use structured output when schema is provided
+            if response_schema:
+                generation_config["response_mime_type"] = "application/json"
+                generation_config["response_json_schema"] = response_schema
+            
             response = self.client.generate_content(
                 prompt,
-                generation_config={"temperature": self.temperature}
+                generation_config=generation_config
             )
             return response.text
         except Exception as e:
@@ -100,7 +134,7 @@ class MockLLMClient(BaseLLMClient):
     def is_available(self) -> bool:
         return True
     
-    def generate(self, prompt: str, **kwargs) -> str:
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """Return mock responses based on prompt content."""
         prompt_lower = prompt.lower()
         

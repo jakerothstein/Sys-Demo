@@ -109,9 +109,10 @@ class GoogleClient(BaseLLMClient):
             generation_config = {"temperature": self.temperature}
             
             # Use structured output when schema is provided
+            # Note: Gemini uses 'response_schema' parameter, not 'response_json_schema'
             if response_schema:
                 generation_config["response_mime_type"] = "application/json"
-                generation_config["response_json_schema"] = response_schema
+                generation_config["response_schema"] = response_schema
             
             response = self.client.generate_content(
                 prompt,
@@ -120,6 +121,12 @@ class GoogleClient(BaseLLMClient):
             return response.text
         except Exception as e:
             error_str = str(e)
+            # If structured output fails, retry without it
+            if response_schema and ("response_schema" in error_str or "Unknown field" in error_str):
+                print(f"Structured output not supported, falling back to regular generation")
+                generation_config = {"temperature": self.temperature}
+                response = self.client.generate_content(prompt, generation_config=generation_config)
+                return response.text
             if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
                 raise RuntimeError(f"Rate limit exceeded. Please wait 30 seconds and try again. Error: {error_str[:200]}")
             raise
@@ -148,7 +155,8 @@ class MockLLMClient(BaseLLMClient):
                     break
             
             # Check for vague markers only in the user query
-            is_vague = any(marker in user_query for marker in ["?", "maybe", "probably", "stuff", "something like"])
+            # Note: Removed "?" since questions naturally end with question marks
+            is_vague = any(marker in user_query for marker in ["maybe", "probably", "stuff", "something like", "idk", "whatever"])
             tables = self._extract_tables_from_prompt(prompt)
             
             if is_vague:

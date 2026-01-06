@@ -28,7 +28,11 @@ DOCKER_AVAILABLE = is_docker_available()
 
 
 class SQLiteExecutor:
-    """SQLite executor supporting both in-memory and file-based databases."""
+    """SQLite executor supporting both in-memory and file-based databases.
+    
+    Security: External databases are opened in read-only mode at the driver level
+    using SQLite URI mode=ro. This provides stronger security than keyword blocking.
+    """
     
     def __init__(self, db_path: Optional[str] = None):
         """
@@ -39,17 +43,21 @@ class SQLiteExecutor:
         """
         self.db_path = db_path
         self.db_name = "demo_ecommerce"
+        self.is_read_only = False
         
         if db_path is not None and os.path.exists(db_path):
-            # Connect to existing database (read-only for safety)
+            # Connect to existing database in true read-only mode at driver level
+            # mode=ro ensures ALL write operations fail at the SQLite level
             self.conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, check_same_thread=False)
             self.db_name = os.path.splitext(os.path.basename(db_path))[0]
             self.is_benchmark_db = True
+            self.is_read_only = True
         else:
-            # Create in-memory demo database
+            # Create in-memory demo database (writable for initial setup only)
             self.conn = sqlite3.connect(":memory:", check_same_thread=False)
             self._setup_demo_schema()
             self.is_benchmark_db = False
+            self.is_read_only = False
     
     def _setup_demo_schema(self):
         """Create the demo schema with sample data."""
@@ -172,6 +180,10 @@ class SQLiteExecutor:
         """
         Execute SQL and return results.
         
+        Security: Read-only enforcement is handled at the SQLite driver level via mode=ro.
+        Any write attempt on read-only databases will raise sqlite3.OperationalError,
+        which is caught and returned as a friendly error message.
+        
         Args:
             sql: The SQL query to execute
             timeout: Maximum execution time in seconds
@@ -179,35 +191,13 @@ class SQLiteExecutor:
         Returns:
             Dict with 'success', 'data' or 'error', and 'row_count'
         """
-        # Safety checks - prevent destructive operations
-        sql_upper = sql.upper()
-        dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'ALTER']
-        write_keywords = ['INSERT', 'UPDATE', 'CREATE']
-        
-        for keyword in dangerous_keywords:
-            if keyword in sql_upper:
-                return {
-                    'success': False,
-                    'error': f"Destructive operation '{keyword}' not allowed in sandbox mode.",
-                    'row_count': 0
-                }
-        
-        # Block writes on benchmark databases
-        if self.is_benchmark_db:
-            for keyword in write_keywords:
-                if keyword in sql_upper:
-                    return {
-                        'success': False,
-                        'error': f"Write operation '{keyword}' not allowed on benchmark databases.",
-                        'row_count': 0
-                    }
-        
         try:
             cursor = self.conn.cursor()
             cursor.execute(sql)
             
-            # Fetch results
-            if sql_upper.strip().startswith('SELECT'):
+            # Fetch results for SELECT queries
+            sql_upper = sql.upper().strip()
+            if sql_upper.startswith('SELECT') or sql_upper.startswith('WITH'):
                 rows = cursor.fetchall()
                 columns = [desc[0] for desc in cursor.description] if cursor.description else []
                 
@@ -219,23 +209,40 @@ class SQLiteExecutor:
                     'data': data,
                     'columns': columns,
                     'row_count': len(rows),
-                    'database': self.db_name
+                    'database': self.db_name,
+                    'read_only': self.is_read_only
                 }
             else:
+                # For non-SELECT queries (INSERT, UPDATE, etc.)
+                # These will fail on read-only databases at the driver level
                 self.conn.commit()
                 return {
                     'success': True,
                     'data': [],
                     'row_count': cursor.rowcount,
-                    'database': self.db_name
+                    'database': self.db_name,
+                    'read_only': self.is_read_only
                 }
                 
         except Exception as e:
+            error_msg = str(e)
+            
+            # Provide friendly message for read-only violations
+            if 'readonly' in error_msg.lower() or 'attempt to write' in error_msg.lower():
+                return {
+                    'success': False,
+                    'error': 'Database is in read-only mode. Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not permitted.',
+                    'row_count': 0,
+                    'database': self.db_name,
+                    'read_only': True
+                }
+            
             return {
                 'success': False,
-                'error': str(e),
+                'error': error_msg,
                 'row_count': 0,
-                'database': self.db_name
+                'database': self.db_name,
+                'read_only': self.is_read_only
             }
 
 

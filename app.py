@@ -1,11 +1,14 @@
 """
 Flask Application for Text-to-SQL Web UI.
 Integrates the LangGraph pipeline with a modern web interface.
+Supports Server-Sent Events (SSE) for real-time progress streaming.
 """
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 import sys
 import os
+import json
+import time
 
 # Ensure src is in path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,7 +52,7 @@ def serve_static(path):
 
 @app.route('/api/query', methods=['POST'])
 def handle_query():
-    """Handle a new NL query."""
+    """Handle a new NL query (synchronous)."""
     data = request.json
     user_query = data.get('query', '')
     session_id = data.get('session_id', 'default')
@@ -70,6 +73,74 @@ def handle_query():
     # Format response for frontend
     response = format_response(result)
     return jsonify(response)
+
+
+@app.route('/api/query/stream', methods=['POST'])
+def handle_query_stream():
+    """
+    Handle a query with SSE streaming for real-time progress updates.
+    
+    Emits events:
+    - status: Progress updates (stage, message)
+    - complete: Final result with full response data
+    - error: Error information if something goes wrong
+    """
+    data = request.json
+    user_query = data.get('query', '')
+    session_id = data.get('session_id', 'default')
+    
+    if not user_query:
+        return jsonify({"error": "No query provided"}), 400
+    
+    def generate_events():
+        """Generator that yields SSE events as pipeline progresses."""
+        try:
+            # Event: Starting
+            yield f"data: {json.dumps({'event': 'status', 'stage': 'starting', 'message': 'Processing query...', 'timestamp': time.time()})}\n\n"
+            
+            # Event: Disambiguating
+            yield f"data: {json.dumps({'event': 'status', 'stage': 'disambiguating', 'message': 'Analyzing query semantics...', 'timestamp': time.time()})}\n\n"
+            
+            # Run the full pipeline
+            # Note: For true streaming, the pipeline would need to yield state after each node
+            # This implementation provides the SSE infrastructure and simulates progress
+            result = pipeline.run(user_query, session_id=session_id)
+            
+            # Emit intermediate states based on result
+            if result.get('needs_clarification') or result.get('final_status') == 'paused_hitl':
+                yield f"data: {json.dumps({'event': 'status', 'stage': 'hitl_required', 'message': 'Clarification needed', 'timestamp': time.time()})}\n\n"
+                
+                # Store pending HITL state
+                pending_hitl[session_id] = {
+                    'original_query': user_query,
+                    'state': result
+                }
+            else:
+                yield f"data: {json.dumps({'event': 'status', 'stage': 'generating_sql', 'message': 'Generating SQL queries...', 'timestamp': time.time()})}\n\n"
+                
+                if result.get('selected_sql'):
+                    yield f"data: {json.dumps({'event': 'status', 'stage': 'executing', 'message': 'Executing query in sandbox...', 'timestamp': time.time()})}\n\n"
+                
+                if result.get('retry_count', 0) > 0:
+                    retry_msg = f"Retry attempt {result.get('retry_count', 0)}..."
+                    yield f"data: {json.dumps({'event': 'status', 'stage': 'retrying', 'message': retry_msg, 'timestamp': time.time()})}\n\n"
+            
+            # Final result
+            formatted = format_response(result)
+            yield f"data: {json.dumps({'event': 'complete', 'result': formatted, 'timestamp': time.time()})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e), 'timestamp': time.time()})}\n\n"
+    
+    return Response(
+        generate_events(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        }
+    )
 
 
 @app.route('/api/feedback', methods=['POST'])

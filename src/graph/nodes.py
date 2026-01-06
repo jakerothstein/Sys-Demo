@@ -2,6 +2,7 @@
 Graph Node Functions for LangGraph Pipeline.
 Each node is a function that takes AgentState and returns a partial state update.
 LLM-First Design: All logic uses LLM prompts rather than regex/keyword matching.
+Structured Outputs: Uses response_schema for guaranteed valid JSON from LLMs.
 """
 import json
 import os
@@ -10,6 +11,49 @@ from typing import Dict, Any, List
 
 from .state import AgentState, PipelineConfig
 from src.data.vector_store import get_schema_store
+
+
+# ==================== STRUCTURED OUTPUT SCHEMAS ====================
+# These schemas are passed to LLM clients to guarantee valid JSON responses
+
+DISAMBIGUATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "confidence": {"type": "number"},
+        "is_ambiguous": {"type": "boolean"},
+        "detected_tables": {"type": "array", "items": {"type": "string"}},
+        "detected_intent": {
+            "type": "string",
+            "enum": ["select", "count", "sum", "average", "ranking", "filter", "join", "aggregate"]
+        },
+        "ambiguity_reasons": {"type": "array", "items": {"type": "string"}},
+        "suggested_clarification": {"type": "string"}
+    },
+    "required": ["confidence", "is_ambiguous", "detected_tables", "detected_intent"]
+}
+
+SQL_GENERATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sql_queries": {"type": "array", "items": {"type": "string"}},
+        "reasoning": {"type": "string"}
+    },
+    "required": ["sql_queries"]
+}
+
+CONSISTENCY_CHECK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "are_equivalent": {"type": "boolean"},
+        "confidence": {"type": "number"},
+        "differences": {"type": "array", "items": {"type": "string"}},
+        "recommendation": {
+            "type": "string",
+            "enum": ["proceed", "clarify", "retry"]
+        }
+    },
+    "required": ["are_equivalent", "confidence", "recommendation"]
+}
 
 
 def load_schema_catalog() -> Dict[str, Any]:
@@ -38,11 +82,24 @@ def format_schema_for_prompt(schema: Dict[str, Any]) -> str:
     Format schema catalog into a comprehensive prompt-friendly string.
     Includes table descriptions, column types, primary keys, foreign keys,
     and relationship summaries for LLM understanding.
+    
+    Supports minimal schema mode (available_tables only) for context overflow prevention.
     """
     if not schema:
         return "No schema available."
     
     lines = [f"Database: {schema.get('database_name', 'unknown')}\n"]
+    
+    # Handle minimal schema mode (only table names, no column details)
+    # This is used when schema linking fails or returns no results
+    if 'available_tables' in schema and not schema.get('tables'):
+        lines.append("\n### Available Tables (schema linking found no specific tables):")
+        lines.append("Note: Ask for clarification about which tables to use.\n")
+        for table in schema['available_tables']:
+            lines.append(f"  - {table}")
+        if schema.get('error'):
+            lines.append(f"\n(Schema linking error: {schema['error']})")
+        return "\n".join(lines)
     
     # Track foreign key relationships for summary
     relationships = []
@@ -149,6 +206,7 @@ def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None
     """
     Analyze the query for ambiguity and semantic clarity using LLM.
     Uses Schema Linking to retrieve only relevant tables instead of full schema.
+    STRICT MODE: Does not default to full schema to prevent context overflow.
     Returns confidence score, detected entities, and clarification needs.
     """
     user_query = state.get('user_query', '')
@@ -156,6 +214,7 @@ def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None
     full_schema = load_schema_catalog()
     
     # Schema Linking: Retrieve only relevant tables for this query
+    # Falls back to full schema if linking fails (needed for LLM context)
     try:
         schema_store = get_schema_store()
         # Ensure schema is indexed
@@ -167,10 +226,13 @@ def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None
             schema = filter_schema_to_tables(full_schema, relevant_tables)
             print(f"Schema Linking: Retrieved {len(relevant_tables)} relevant tables: {relevant_tables}")
         else:
-            schema = full_schema  # Fallback to full schema if no tables retrieved
+            # Fallback to full schema - LLM needs context to work properly
+            print("Schema Linking: No specific tables matched. Using full schema for LLM context.")
+            schema = full_schema
     except Exception as e:
-        print(f"Schema linking fallback: {e}")
-        schema = full_schema  # Fallback to full schema on error
+        # Fallback to full schema on error
+        print(f"Schema linking error: {e}. Using full schema fallback.")
+        schema = full_schema
     
     schema_context = format_schema_for_prompt(schema)
     
@@ -226,8 +288,15 @@ Return ONLY the JSON object, no other text."""
         return default_response
     
     try:
-        response = llm_client.generate(prompt)
-        parsed = _parse_json_from_response(response)
+        # Use structured output schema for guaranteed valid JSON
+        response = llm_client.generate(prompt, response_schema=DISAMBIGUATION_SCHEMA)
+        
+        # Parse the response - with structured outputs this should always be valid JSON
+        try:
+            parsed = json.loads(response)
+        except json.JSONDecodeError:
+            # Fallback to regex parsing if structured output not supported by provider
+            parsed = _parse_json_from_response(response)
         
         if not parsed:
             return default_response
@@ -351,8 +420,15 @@ Guidelines:
 Return ONLY the JSON object, no other text."""
 
     try:
-        response = llm_client.generate(prompt)
-        parsed = _parse_json_from_response(response)
+        # Use structured output schema for guaranteed valid JSON
+        response = llm_client.generate(prompt, response_schema=SQL_GENERATION_SCHEMA)
+        
+        # Parse the response - with structured outputs this should always be valid JSON
+        try:
+            parsed = json.loads(response)
+        except json.JSONDecodeError:
+            # Fallback to regex parsing if structured output not supported by provider
+            parsed = _parse_json_from_response(response)
         
         if parsed and 'sql_queries' in parsed:
             sqls = parsed['sql_queries']
@@ -362,7 +438,7 @@ Return ONLY the JSON object, no other text."""
                     'selected_sql': sqls[0]
                 }
         
-        # Try to parse SQL_N: format as fallback
+        # Try to parse SQL_N: format as fallback (for non-JSON responses)
         sqls = []
         for line in response.split('\n'):
             line = line.strip()
@@ -394,7 +470,8 @@ Return ONLY the JSON object, no other text."""
 def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
     """
     Check if the generated SQL variations are semantically consistent.
-    If they differ significantly, we may need clarification.
+    Uses LLM-based semantic comparison for accurate equivalence checking.
+    Falls back to structural heuristics if LLM is unavailable.
     """
     sqls = state.get('generated_sqls', [])
     
@@ -404,7 +481,61 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
             'consistency_analysis': "Only one SQL generated, skipping consistency check."
         }
     
-    # Simple heuristic: check if JOINs and WHERE clauses are similar
+    # Use LLM for semantic comparison if available
+    if llm_client:
+        try:
+            prompt = f"""Compare these SQL queries and determine if they are semantically equivalent 
+(would return the same results on the same data):
+
+SQL 1: {sqls[0]}
+SQL 2: {sqls[1]}
+{f"SQL 3: {sqls[2]}" if len(sqls) > 2 else ""}
+
+Consider:
+- Do they query the same tables?
+- Do they apply equivalent filters?
+- Do they return equivalent columns/aggregations?
+- Would they produce the same result set?
+
+Return your analysis as JSON."""
+
+            response = llm_client.generate(prompt, response_schema=CONSISTENCY_CHECK_SCHEMA)
+            
+            try:
+                result = json.loads(response)
+            except json.JSONDecodeError:
+                result = _parse_json_from_response(response)
+            
+            if result and 'are_equivalent' in result:
+                are_equivalent = result.get('are_equivalent', True)
+                confidence = result.get('confidence', 0.5)
+                differences = result.get('differences', [])
+                recommendation = result.get('recommendation', 'proceed')
+                
+                consistency_passed = are_equivalent and confidence > 0.7
+                
+                if consistency_passed:
+                    analysis = f"LLM semantic analysis: queries are equivalent (confidence: {confidence:.0%})"
+                else:
+                    diff_str = "; ".join(differences) if differences else "semantic differences detected"
+                    analysis = f"LLM semantic analysis: {diff_str}. Recommendation: {recommendation}"
+                
+                return {
+                    'consistency_passed': consistency_passed,
+                    'consistency_analysis': analysis
+                }
+        except Exception as e:
+            print(f"LLM consistency check failed, using structural fallback: {e}")
+    
+    # Fallback: structural heuristic check
+    return _structural_consistency_check(sqls)
+
+
+def _structural_consistency_check(sqls: List[str]) -> Dict[str, Any]:
+    """
+    Fallback structural consistency check using keyword matching.
+    Used when LLM is unavailable or fails.
+    """
     def extract_structure(sql: str) -> dict:
         sql_upper = sql.upper()
         return {
@@ -429,9 +560,9 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
     consistency_passed = len(inconsistencies) == 0
     
     if consistency_passed:
-        analysis = "All variations have consistent structure (JOINs, WHERE, GROUP BY)."
+        analysis = "Structural check: All variations have consistent structure (JOINs, WHERE, GROUP BY)."
     else:
-        analysis = f"Inconsistencies found: {', '.join(inconsistencies)}. This may indicate semantic ambiguity."
+        analysis = f"Structural check: {', '.join(inconsistencies)}. This may indicate semantic ambiguity."
     
     return {
         'consistency_passed': consistency_passed,

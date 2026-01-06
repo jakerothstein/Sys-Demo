@@ -334,11 +334,22 @@ _current_mode: str = 'demo'  # 'demo' or 'benchmark'
 
 def get_executor() -> SQLiteExecutor:
     """Get or create the global executor instance."""
-    global _executor
+    global _executor, _current_mode
     if _executor is None:
         if DOCKER_AVAILABLE:
             print("Docker available, but using SQLite for demo simplicity.")
-        _executor = SQLiteExecutor()
+        
+        # Try to load the complex company_analytics database if it exists
+        custom_db_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'data', 'custom', 'company_analytics.db'
+        )
+        if os.path.exists(custom_db_path):
+            print(f"Loading company_analytics database...")
+            _executor = SQLiteExecutor(custom_db_path)
+            _current_mode = 'benchmark'
+        else:
+            # Fall back to in-memory demo database
+            _executor = SQLiteExecutor()
     return _executor
 
 

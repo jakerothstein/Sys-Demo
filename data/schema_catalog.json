@@ -1,136 +1,471 @@
 {
-  "database_name": "ecommerce_demo",
-  "description": "A sample e-commerce database for Text-to-SQL research",
+  "database_name": "company_analytics",
+  "description": "Complex business database for Text-to-SQL testing with 10 tables and 1000+ rows",
   "tables": {
-    "customers": {
-      "description": "Stores customer information including contact details and account status",
+    "departments": {
+      "description": "Company divisions and their budgets",
       "columns": {
         "id": {
           "type": "INTEGER",
-          "description": "Unique customer identifier",
+          "description": "Unique department identifier",
           "is_primary_key": true
         },
         "name": {
           "type": "TEXT",
-          "description": "Full name of the customer",
-          "sample_values": ["Alice Johnson", "Bob Smith", "Charlie Brown"]
+          "description": "Department name",
+          "sample_values": [
+            "Engineering",
+            "Sales",
+            "Marketing",
+            "HR"
+          ]
+        },
+        "budget": {
+          "type": "DECIMAL",
+          "description": "Annual department budget"
+        },
+        "location": {
+          "type": "TEXT",
+          "description": "Building location"
+        },
+        "created_date": {
+          "type": "DATE",
+          "description": "Date department was created"
+        }
+      }
+    },
+    "employees": {
+      "description": "Staff members with hierarchy and compensation",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Unique employee identifier",
+          "is_primary_key": true
+        },
+        "first_name": {
+          "type": "TEXT",
+          "description": "Employee first name"
+        },
+        "last_name": {
+          "type": "TEXT",
+          "description": "Employee last name"
         },
         "email": {
           "type": "TEXT",
-          "description": "Customer email address",
-          "sample_values": ["alice@gmail.com", "bob@yahoo.com"]
+          "description": "Work email address"
         },
-        "state": {
+        "phone": {
           "type": "TEXT",
-          "description": "US state where customer is located",
-          "sample_values": ["California", "Texas", "Georgia", "New York"]
+          "description": "Contact phone number"
         },
-        "created_at": {
-          "type": "TIMESTAMP",
-          "description": "Account creation date"
+        "department_id": {
+          "type": "INTEGER",
+          "description": "Reference to departments.id",
+          "foreign_key": "departments.id"
+        },
+        "manager_id": {
+          "type": "INTEGER",
+          "description": "Reference to employees.id (self-referential)",
+          "foreign_key": "employees.id"
+        },
+        "salary": {
+          "type": "DECIMAL",
+          "description": "Annual salary in USD"
+        },
+        "hire_date": {
+          "type": "DATE",
+          "description": "Date of hire"
+        },
+        "job_title": {
+          "type": "TEXT",
+          "description": "Job title",
+          "sample_values": [
+            "Software Engineer",
+            "Sales Rep",
+            "HR Specialist"
+          ]
+        }
+      }
+    },
+    "projects": {
+      "description": "Business initiatives and their status",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Unique project identifier",
+          "is_primary_key": true
+        },
+        "name": {
+          "type": "TEXT",
+          "description": "Project name"
+        },
+        "description": {
+          "type": "TEXT",
+          "description": "Project description"
+        },
+        "department_id": {
+          "type": "INTEGER",
+          "description": "Owning department",
+          "foreign_key": "departments.id"
+        },
+        "budget": {
+          "type": "DECIMAL",
+          "description": "Project budget"
+        },
+        "start_date": {
+          "type": "DATE",
+          "description": "Project start date"
+        },
+        "end_date": {
+          "type": "DATE",
+          "description": "Expected end date"
+        },
+        "status": {
+          "type": "TEXT",
+          "description": "Current status",
+          "sample_values": [
+            "planning",
+            "active",
+            "completed",
+            "on_hold"
+          ]
+        }
+      }
+    },
+    "project_assignments": {
+      "description": "Links employees to projects with roles",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Assignment identifier",
+          "is_primary_key": true
+        },
+        "employee_id": {
+          "type": "INTEGER",
+          "description": "Assigned employee",
+          "foreign_key": "employees.id"
+        },
+        "project_id": {
+          "type": "INTEGER",
+          "description": "Assigned project",
+          "foreign_key": "projects.id"
+        },
+        "role": {
+          "type": "TEXT",
+          "description": "Role on project",
+          "sample_values": [
+            "Lead",
+            "Contributor",
+            "Reviewer"
+          ]
+        },
+        "hours_allocated": {
+          "type": "INTEGER",
+          "description": "Weekly hours allocated"
+        },
+        "start_date": {
+          "type": "DATE",
+          "description": "Assignment start"
+        },
+        "end_date": {
+          "type": "DATE",
+          "description": "Assignment end"
+        }
+      }
+    },
+    "categories": {
+      "description": "Product category hierarchy",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Category identifier",
+          "is_primary_key": true
+        },
+        "name": {
+          "type": "TEXT",
+          "description": "Category name",
+          "sample_values": [
+            "Electronics",
+            "Software",
+            "Office"
+          ]
+        },
+        "description": {
+          "type": "TEXT",
+          "description": "Category description"
+        },
+        "parent_category_id": {
+          "type": "INTEGER",
+          "description": "Parent category for hierarchy",
+          "foreign_key": "categories.id"
         }
       }
     },
     "products": {
-      "description": "Product catalog with pricing and category information",
+      "description": "Product catalog with pricing",
       "columns": {
         "id": {
           "type": "INTEGER",
-          "description": "Unique product identifier",
+          "description": "Product identifier",
           "is_primary_key": true
         },
         "name": {
           "type": "TEXT",
-          "description": "Product name",
-          "sample_values": ["Laptop Pro", "Wireless Mouse", "USB-C Cable"]
+          "description": "Product name"
         },
-        "category": {
+        "sku": {
           "type": "TEXT",
+          "description": "Stock keeping unit"
+        },
+        "category_id": {
+          "type": "INTEGER",
           "description": "Product category",
-          "sample_values": ["Electronics", "Accessories", "Software"]
+          "foreign_key": "categories.id"
         },
         "price": {
           "type": "DECIMAL",
-          "description": "Unit price in USD"
+          "description": "Selling price"
         },
         "cost": {
           "type": "DECIMAL",
-          "description": "Cost to acquire/manufacture the product"
+          "description": "Cost to acquire"
+        },
+        "description": {
+          "type": "TEXT",
+          "description": "Product description"
+        },
+        "created_date": {
+          "type": "DATE",
+          "description": "Date added"
+        },
+        "is_active": {
+          "type": "BOOLEAN",
+          "description": "Whether product is active"
         }
       }
     },
-    "orders": {
-      "description": "Customer orders with status tracking",
+    "locations": {
+      "description": "Warehouses, stores, and offices",
       "columns": {
         "id": {
           "type": "INTEGER",
-          "description": "Unique order identifier",
+          "description": "Location identifier",
+          "is_primary_key": true
+        },
+        "name": {
+          "type": "TEXT",
+          "description": "Location name"
+        },
+        "type": {
+          "type": "TEXT",
+          "description": "Location type",
+          "sample_values": [
+            "warehouse",
+            "store",
+            "office",
+            "distribution_center"
+          ]
+        },
+        "address": {
+          "type": "TEXT",
+          "description": "Street address"
+        },
+        "city": {
+          "type": "TEXT",
+          "description": "City"
+        },
+        "state": {
+          "type": "TEXT",
+          "description": "State code"
+        },
+        "capacity": {
+          "type": "INTEGER",
+          "description": "Storage capacity"
+        }
+      }
+    },
+    "inventory": {
+      "description": "Stock levels by product and location",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Inventory record identifier",
+          "is_primary_key": true
+        },
+        "product_id": {
+          "type": "INTEGER",
+          "description": "Product in stock",
+          "foreign_key": "products.id"
+        },
+        "location_id": {
+          "type": "INTEGER",
+          "description": "Storage location",
+          "foreign_key": "locations.id"
+        },
+        "quantity": {
+          "type": "INTEGER",
+          "description": "Current quantity in stock"
+        },
+        "reorder_level": {
+          "type": "INTEGER",
+          "description": "Minimum stock before reorder"
+        },
+        "last_restocked": {
+          "type": "DATE",
+          "description": "Last restock date"
+        }
+      }
+    },
+    "customers": {
+      "description": "Client companies and contacts",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Customer identifier",
+          "is_primary_key": true
+        },
+        "company_name": {
+          "type": "TEXT",
+          "description": "Company name"
+        },
+        "contact_name": {
+          "type": "TEXT",
+          "description": "Primary contact"
+        },
+        "email": {
+          "type": "TEXT",
+          "description": "Contact email"
+        },
+        "phone": {
+          "type": "TEXT",
+          "description": "Contact phone"
+        },
+        "address": {
+          "type": "TEXT",
+          "description": "Street address"
+        },
+        "city": {
+          "type": "TEXT",
+          "description": "City"
+        },
+        "state": {
+          "type": "TEXT",
+          "description": "State code"
+        },
+        "credit_limit": {
+          "type": "DECIMAL",
+          "description": "Credit limit in USD"
+        },
+        "created_date": {
+          "type": "DATE",
+          "description": "Account creation date"
+        },
+        "is_active": {
+          "type": "BOOLEAN",
+          "description": "Whether customer is active"
+        }
+      }
+    },
+    "sales": {
+      "description": "Revenue transactions linking customers, employees, and products",
+      "columns": {
+        "id": {
+          "type": "INTEGER",
+          "description": "Sale identifier",
           "is_primary_key": true
         },
         "customer_id": {
           "type": "INTEGER",
-          "description": "Reference to customers.id",
+          "description": "Customer making purchase",
           "foreign_key": "customers.id"
         },
-        "order_date": {
-          "type": "DATE",
-          "description": "Date the order was placed"
-        },
-        "status": {
-          "type": "TEXT",
-          "description": "Current order status",
-          "sample_values": ["pending", "shipped", "delivered", "cancelled"]
-        },
-        "total_amount": {
-          "type": "DECIMAL",
-          "description": "Total order value (gross revenue)"
-        }
-      }
-    },
-    "order_items": {
-      "description": "Individual items within an order",
-      "columns": {
-        "id": {
+        "employee_id": {
           "type": "INTEGER",
-          "description": "Unique line item identifier",
-          "is_primary_key": true
-        },
-        "order_id": {
-          "type": "INTEGER",
-          "description": "Reference to orders.id",
-          "foreign_key": "orders.id"
+          "description": "Employee making sale",
+          "foreign_key": "employees.id"
         },
         "product_id": {
           "type": "INTEGER",
-          "description": "Reference to products.id",
+          "description": "Product sold",
           "foreign_key": "products.id"
         },
         "quantity": {
           "type": "INTEGER",
-          "description": "Number of units ordered"
+          "description": "Quantity sold"
         },
         "unit_price": {
           "type": "DECIMAL",
-          "description": "Price per unit at time of order"
+          "description": "Price per unit at time of sale"
+        },
+        "discount_percent": {
+          "type": "DECIMAL",
+          "description": "Discount applied (0-100)"
+        },
+        "sale_date": {
+          "type": "DATE",
+          "description": "Date of sale"
+        },
+        "payment_method": {
+          "type": "TEXT",
+          "description": "Payment type",
+          "sample_values": [
+            "credit_card",
+            "bank_transfer",
+            "cash",
+            "check"
+          ]
+        },
+        "status": {
+          "type": "TEXT",
+          "description": "Sale status",
+          "sample_values": [
+            "pending",
+            "completed",
+            "refunded",
+            "cancelled"
+          ]
         }
       }
     }
   },
   "semantic_notes": {
-    "sales": {
+    "revenue": {
       "ambiguous": true,
       "possible_interpretations": [
-        {"term": "gross_revenue", "sql_hint": "SUM(orders.total_amount)"},
-        {"term": "net_profit", "sql_hint": "SUM(order_items.quantity * (order_items.unit_price - products.cost))"},
-        {"term": "unit_count", "sql_hint": "SUM(order_items.quantity)"}
+        {
+          "term": "gross_revenue",
+          "sql_hint": "SUM(sales.quantity * sales.unit_price)"
+        },
+        {
+          "term": "net_revenue",
+          "sql_hint": "SUM(sales.quantity * sales.unit_price * (1 - sales.discount_percent/100))"
+        },
+        {
+          "term": "completed_revenue",
+          "sql_hint": "SUM(...) WHERE status = 'completed'"
+        }
       ]
     },
-    "top_customers": {
+    "top_employees": {
       "ambiguous": true,
       "possible_interpretations": [
-        {"term": "by_revenue", "sql_hint": "ORDER BY SUM(total_amount) DESC"},
-        {"term": "by_order_count", "sql_hint": "ORDER BY COUNT(orders.id) DESC"}
+        {
+          "term": "by_sales_count",
+          "sql_hint": "ORDER BY COUNT(sales.id) DESC"
+        },
+        {
+          "term": "by_revenue",
+          "sql_hint": "ORDER BY SUM(quantity * unit_price) DESC"
+        },
+        {
+          "term": "by_salary",
+          "sql_hint": "ORDER BY salary DESC"
+        }
       ]
+    },
+    "active_projects": {
+      "ambiguous": false,
+      "sql_hint": "WHERE projects.status = 'active'"
     }
   }
 }

@@ -3,6 +3,26 @@
 const API_BASE = '';
 const SESSION_ID = 'session_' + Date.now();
 
+// Toggle collapsible card sections
+function toggleCard(headerElement) {
+    const card = headerElement.closest('.collapsible');
+    const content = card.querySelector('.card-content');
+    const icon = card.querySelector('.toggle-icon');
+
+    if (card.classList.contains('collapsed')) {
+        card.classList.remove('collapsed');
+        content.style.display = 'block';
+        icon.textContent = '▼';
+    } else {
+        card.classList.add('collapsed');
+        content.style.display = 'none';
+        icon.textContent = '▶';
+    }
+}
+
+// Make toggleCard available globally for onclick handlers
+window.toggleCard = toggleCard;
+
 // DOM Elements
 const queryInput = document.getElementById('query-input');
 const submitBtn = document.getElementById('submit-btn');

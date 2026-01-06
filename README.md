@@ -30,16 +30,16 @@ This project implements an advanced Text-to-SQL pipeline that converts natural l
 │                    LangGraph Pipeline                       │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌──────────┐   ┌──────────────┐   ┌───────────────┐       │
-│  │  Parse   │──▶│ Disambiguate │──▶│ Generate SQL  │       │
-│  └──────────┘   └──────────────┘   └───────────────┘       │
+│  ┌──────────┐   ┌──────────────┐   ┌───────────────┐        │
+│  │  Parse   │──▶│ Disambiguate │──▶│ Generate SQL  │        │
+│  └──────────┘   └──────────────┘   └───────────────┘        │
 │       │              │                    │                 │
 │       │         HITL Pause                │                 │
 │       │              ▼                    ▼                 │
-│       │        ┌──────────┐       ┌──────────────┐         │
-│       │        │  Human   │       │   Execute    │         │
-│       │        │ Feedback │       │     SQL      │         │
-│       │        └──────────┘       └──────────────┘         │
+│       │        ┌──────────┐       ┌──────────────┐          │
+│       │        │  Human   │       │   Execute    │          │
+│       │        │ Feedback │       │     SQL      │          │
+│       │        └──────────┘       └──────────────┘          │
 │       │                                   │                 │
 │       │                           Error   │  Success        │
 │       │                             ▼     ▼                 │
@@ -127,6 +127,7 @@ Try these example queries to test the system:
 | `/api/databases/switch` | POST | Switch active database |
 | `/api/databases/schema` | GET | Get current schema |
 | `/api/benchmark/start` | POST | Start benchmark run |
+| `/api/examples/save` | POST | Save query as few-shot example |
 
 ---
 
@@ -146,12 +147,13 @@ Sys Demo/
 │   │   └── providers.py    # OpenAI/Anthropic/Gemini providers
 │   ├── data/
 │   │   ├── schema.py       # Schema loading + formatting
+│   │   ├── vector_store.py # Vector store + schema linking
 │   │   └── few_shot.py     # Vector store for examples
 │   └── sandbox/
 │       └── executor.py     # Safe SQL execution
 ├── data/
 │   ├── schema_catalog.json # Database schemas with FK relations
-│   ├── few_shot_examples.json # Example question-SQL pairs
+│   ├── few_shot_examples.json # Example question-SQL pairs (60+ examples)
 │   ├── chroma_db/          # Vector store for RAG
 │   └── custom/             # Custom databases
 ├── prompts/
@@ -163,7 +165,8 @@ Sys Demo/
 │   ├── app.js              # Frontend JavaScript
 │   └── analytics.html      # Benchmark analytics dashboard
 └── scripts/
-    └── create_company_db.py # Generate test database
+    ├── create_company_db.py        # Generate test database
+    └── analyze_data_for_examples.py # Generate few-shot examples from data
 ```
 
 ---
@@ -261,6 +264,60 @@ Metrics tracked:
 - HITL trigger frequency
 - Average response time
 - Error patterns
+
+---
+
+## Few-Shot Examples
+
+The pipeline uses few-shot examples to improve SQL generation accuracy. Examples are stored in `data/few_shot_examples.json`.
+
+### Saving Examples from the UI
+
+When a query executes successfully, click the **💾 Save as Example** button in the Generated SQL card to save it as a few-shot example. This is the best way to build quality examples from real usage.
+
+If the query required clarification (HITL), the clarification is also saved:
+
+```json
+{
+    "id": "user_20260106_120530",
+    "question": "What are the sales?",
+    "clarification": "Show completed sales for Q1 2025",
+    "sql": "SELECT * FROM sales WHERE status = 'completed' AND ...",
+    "intent": "select",
+    "tables": ["sales"],
+    "difficulty": "medium",
+    "saved_at": "2026-01-06T12:05:30.123456",
+    "source": "user_saved"
+}
+```
+
+### Generating Examples from Data
+
+Run the analyzer script to generate examples based on your actual database schema:
+
+```bash
+python scripts/analyze_data_for_examples.py
+```
+
+This script:
+- Auto-detects your SQLite database
+- Analyzes tables and column types
+- Generates realistic example queries (count, filter, aggregation, joins, etc.)
+- Saves suggestions to `scripts/suggested_examples.json`
+
+### SQLite Float Division Fix
+
+⚠️ **Important**: When calculating discounts or percentages in SQLite, always use `100.0` (not `100`) to avoid integer division:
+
+```sql
+-- ❌ WRONG: Integer division, discount becomes 0
+SELECT price * (1 - discount_percent/100) FROM sales;
+
+-- ✅ CORRECT: Float division
+SELECT price * (1 - discount_percent/100.0) FROM sales;
+```
+
+The few-shot examples include discount calculations using `100.0` to teach the LLM this pattern.
 
 ---
 

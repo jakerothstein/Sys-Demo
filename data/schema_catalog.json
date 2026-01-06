@@ -399,7 +399,7 @@
         },
         "discount_percent": {
           "type": "DECIMAL",
-          "description": "Discount applied (0-100)"
+          "description": "Discount percentage as a whole number from 0-100 (e.g., 15 means 15% off, NOT 0.15). IMPORTANT: Use 100.0 for division to avoid integer truncation. Correct formula: unit_price * (1 - discount_percent/100.0)"
         },
         "sale_date": {
           "type": "DATE",
@@ -438,7 +438,7 @@
         },
         {
           "term": "net_revenue",
-          "sql_hint": "SUM(sales.quantity * sales.unit_price * (1 - sales.discount_percent/100))"
+          "sql_hint": "SUM(sales.quantity * sales.unit_price * (1 - sales.discount_percent/100.0))"
         },
         {
           "term": "completed_revenue",
@@ -466,6 +466,11 @@
     "active_projects": {
       "ambiguous": false,
       "sql_hint": "WHERE projects.status = 'active'"
+    },
+    "discounted_price": {
+      "ambiguous": false,
+      "description": "Calculate discounted price. CRITICAL: Use 100.0 (not 100) to avoid SQLite integer division. Formula: unit_price * (1 - discount_percent/100.0). Note: discount_percent is stored as whole numbers (15 = 15% off).",
+      "sql_hint": "unit_price * (1 - discount_percent/100.0)"
     }
   }
 }

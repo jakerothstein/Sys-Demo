@@ -1,1 +1,21 @@
+# Virtual environment
 /venv
+
+# Generated embeddings (can be rebuilt)
+/data/chroma_db/
+
+# Runtime databases
+/data/benchmark_results.db
+*.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store

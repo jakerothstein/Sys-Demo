@@ -9,6 +9,7 @@ import re
 from typing import Dict, Any, List
 
 from .state import AgentState, PipelineConfig
+from src.data.vector_store import get_schema_store
 
 
 def load_schema_catalog() -> Dict[str, Any]:
@@ -91,6 +92,34 @@ def format_schema_for_prompt(schema: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def filter_schema_to_tables(schema: Dict[str, Any], table_names: List[str]) -> Dict[str, Any]:
+    """
+    Filter a schema dictionary to include only the specified tables.
+    Used by schema linking to provide focused context to the LLM.
+    
+    Args:
+        schema: Full schema catalog dictionary
+        table_names: List of table names to keep
+        
+    Returns:
+        Filtered schema with only the specified tables
+    """
+    if not schema or not table_names:
+        return schema
+    
+    table_set = set(table_names)
+    filtered_tables = {
+        name: info for name, info in schema.get('tables', {}).items()
+        if name in table_set
+    }
+    
+    return {
+        'database_name': schema.get('database_name', 'unknown'),
+        'tables': filtered_tables,
+        'semantic_notes': schema.get('semantic_notes', {})
+    }
+
+
 def _parse_json_from_response(response: str) -> Dict[str, Any]:
     """
     Extract and parse JSON from an LLM response.
@@ -119,11 +148,39 @@ def _parse_json_from_response(response: str) -> Dict[str, Any]:
 def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
     """
     Analyze the query for ambiguity and semantic clarity using LLM.
+    Uses Schema Linking to retrieve only relevant tables instead of full schema.
     Returns confidence score, detected entities, and clarification needs.
     """
     user_query = state.get('user_query', '')
-    schema = load_schema_catalog()
+    user_feedback = state.get('user_feedback', '')
+    full_schema = load_schema_catalog()
+    
+    # Schema Linking: Retrieve only relevant tables for this query
+    try:
+        schema_store = get_schema_store()
+        # Ensure schema is indexed
+        if schema_store.get_stats().get('indexed_tables', 0) == 0:
+            schema_store.index_schema(full_schema)
+        
+        relevant_tables = schema_store.retrieve_relevant_tables(user_query, n=5)
+        if relevant_tables:
+            schema = filter_schema_to_tables(full_schema, relevant_tables)
+            print(f"Schema Linking: Retrieved {len(relevant_tables)} relevant tables: {relevant_tables}")
+        else:
+            schema = full_schema  # Fallback to full schema if no tables retrieved
+    except Exception as e:
+        print(f"Schema linking fallback: {e}")
+        schema = full_schema  # Fallback to full schema on error
+    
     schema_context = format_schema_for_prompt(schema)
+    
+    # Build user feedback section if clarification was provided
+    feedback_section = ""
+    if user_feedback:
+        feedback_section = f"""
+USER CLARIFICATION: "{user_feedback}"
+Note: The user has provided clarification for their original query. This should significantly increase your confidence since the ambiguity has been resolved by the user.
+"""
     
     # Build disambiguation prompt for LLM
     prompt = f"""You are an expert SQL analyst. Analyze the following natural language query for a database.
@@ -132,7 +189,7 @@ DATABASE SCHEMA:
 {schema_context}
 
 USER QUERY: "{user_query}"
-
+{feedback_section}
 Analyze this query and return a JSON object with the following structure:
 {{
     "confidence": <float 0.0-1.0 indicating how clear and unambiguous the query is>,
@@ -148,6 +205,7 @@ Consider:
 - Is the aggregation or intent unambiguous?
 - Are there any terms that could have multiple meanings (e.g., "sales", "top customers")?
 - Does the user need to specify filters, grouping, or ordering?
+- If the user has provided clarification, factor that into your confidence score (it should be higher).
 
 Return ONLY the JSON object, no other text."""
 

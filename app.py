@@ -12,7 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.graph.pipeline import create_pipeline, TextToSQLGraph
 from src.graph.state import PipelineConfig
+from src.graph.nodes import load_schema_catalog
 from src.llm.client import create_llm_client
+from src.data.vector_store import get_schema_store
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
@@ -506,6 +508,21 @@ if __name__ == '__main__':
     print(f"LLM Available: {llm_client.is_available() if llm_client else False}")
     print(f"Confidence Threshold: {config.confidence_threshold}")
     print(f"Max Retries: {config.max_retries}")
+    print("=" * 50)
+    
+    # Initialize Schema Store for Schema Linking
+    print("Initializing schema store for Schema Linking...")
+    try:
+        schema = load_schema_catalog()
+        if schema and schema.get('tables'):
+            schema_store = get_schema_store()
+            schema_store.index_schema(schema)
+            print(f"Schema store ready: {len(schema.get('tables', {}))} tables indexed.")
+        else:
+            print("Warning: No schema loaded, schema linking will use fallback.")
+    except Exception as e:
+        print(f"Schema store initialization warning: {e}")
+    
     print("=" * 50)
     print("Open http://localhost:5000 in your browser")
     print("=" * 50)

@@ -342,47 +342,53 @@ Return ONLY the JSON object, no other text."""
 def retrieve_examples_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any]:
     """
     Retrieve relevant few-shot examples from the vector store.
-    Implements Schema-Aware Filtering to only use examples with tables that exist
-    in the current database.
+    
+    CRITICAL UPDATE: Performs Schema-Aware Filtering.
+    Only uses examples where the referenced tables actually exist in the current DB.
     """
+    examples = []
     try:
         from src.data.vector_store import get_vector_store
         
-        # Get current schema's valid table names
-        current_schema = load_schema_catalog()
-        valid_table_names = set(current_schema.get('tables', {}).keys())
-        
-        # Retrieve examples from vector store
+        # 1. Retrieve raw examples based on semantic similarity
         vector_store = get_vector_store()
-        raw_examples = vector_store.retrieve(state.get('user_query', ''), n_results=10)  # Get more to filter
+        raw_examples = vector_store.retrieve(state.get('user_query', ''), n_results=10) # Fetch more to allow for filtering
         
-        # Filter examples: only keep if ALL tables in example exist in current schema
-        filtered_examples = []
-        for example in raw_examples:
-            example_tables = example.get('tables', [])
-            
-            # If no tables specified, include the example (can't filter)
-            if not example_tables:
-                filtered_examples.append(example)
-                continue
-            
-            # Check if ALL tables in this example exist in current schema
-            missing_tables = [t for t in example_tables if t not in valid_table_names]
-            
-            if missing_tables:
-                print(f"Skipping example '{example.get('question', '')[:50]}...' - references non-existent tables: {missing_tables}")
-            else:
-                filtered_examples.append(example)
-            
-            # Stop once we have enough valid examples
-            if len(filtered_examples) >= 3:
-                break
+        # 2. Load current schema to validate table existence
+        schema = load_schema_catalog()
         
-        if len(filtered_examples) < len(raw_examples):
-            print(f"Schema-aware filtering: kept {len(filtered_examples)} of {len(raw_examples)} examples")
-        
-        examples = filtered_examples[:3]
-        
+        # 3. Filter examples
+        if schema and schema.get('tables'):
+            # Create a set of valid table names (normalized to lowercase)
+            current_tables = set(k.lower() for k in schema.get('tables', {}).keys())
+            
+            valid_examples = []
+            for ex in raw_examples:
+                ex_tables = ex.get('tables', [])
+                
+                # If example has no specific tables, it's generic/safe to keep
+                if not ex_tables:
+                    valid_examples.append(ex)
+                    continue
+                
+                # Check if ALL tables in the example exist in the current DB
+                ex_tables_set = set(t.lower() for t in ex_tables)
+                if ex_tables_set.issubset(current_tables):
+                    valid_examples.append(ex)
+                else:
+                    # Debug log to show what is being skipped
+                    missing = ex_tables_set - current_tables
+                    print(f"Skipping example '{ex.get('question')}' (Tables {missing} not in current DB)")
+            
+            # Keep only the top 3 VALID examples
+            examples = valid_examples[:3]
+            
+            if not examples and raw_examples:
+                print("No relevant few-shot examples found for this schema. Using Zero-Shot mode.")
+        else:
+            # Fallback if schema fails to load
+            examples = raw_examples[:3]
+
     except Exception as e:
         print(f"Vector store error: {e}")
         examples = []

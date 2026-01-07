@@ -283,6 +283,12 @@ def switch_database():
     
     if success:
         schema = get_current_schema()
+        
+        # Refresh schema linking for the new database
+        schema_store = get_schema_store()
+        schema_store.clear()
+        schema_store.index_schema(schema)
+        
         return jsonify({
             "success": True,
             "message": f"Switched to {mode} mode" + (f" ({db_id})" if db_id else ""),

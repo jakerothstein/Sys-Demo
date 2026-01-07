@@ -273,7 +273,14 @@ class BenchmarkExecutor:
     
     def load_database(self, db_id: str, dataset: str = 'bird') -> bool:
         """Load a specific benchmark database."""
-        # Search for the database
+        # Check if db_id is an absolute path to an existing file
+        if os.path.isabs(db_id) and os.path.isfile(db_id):
+            self.current_executor = SQLiteExecutor(db_id)
+            self.current_db_id = os.path.splitext(os.path.basename(db_id))[0]
+            print(f"Loaded database from absolute path: {db_id}")
+            return True
+        
+        # Search for the database in dataset directory
         dataset_path = os.path.join(self.data_root, dataset)
         
         if not os.path.exists(dataset_path):

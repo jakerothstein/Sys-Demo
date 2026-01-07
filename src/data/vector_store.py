@@ -311,6 +311,23 @@ class SchemaStore:
         else:
             print(f"Loaded {len(tables)} table summaries into fallback store.")
     
+    def clear(self):
+        """Clear all indexed tables from the store."""
+        self.table_summaries.clear()
+        self.all_table_names = []
+
+        if CHROMADB_AVAILABLE and self.collection is not None:
+            try:
+                self.client.delete_collection(self.collection_name)
+                # Re-create the collection immediately
+                self.collection = self.client.get_or_create_collection(
+                    name=self.collection_name,
+                    embedding_function=self.embedding_fn,
+                    metadata={"description": "Schema table summaries for linking"}
+                )
+            except Exception as e:
+                print(f"Error clearing collection: {e}")
+    
     def retrieve_relevant_tables(self, query: str, n: int = 5) -> List[str]:
         """
         Retrieve the most relevant table names for a given user query.

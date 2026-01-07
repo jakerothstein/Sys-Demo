@@ -139,7 +139,7 @@ Sys Demo/
 ├── src/
 │   ├── graph/
 │   │   ├── pipeline.py     # LangGraph pipeline construction
-│   │   ├── nodes.py        # Pipeline node implementations
+│   │   ├── nodes.py        # Pipeline node implementations + LLM prompts
 │   │   ├── edges.py        # Conditional routing logic
 │   │   └── state.py        # Pipeline state definition
 │   ├── llm/
@@ -156,9 +156,6 @@ Sys Demo/
 │   ├── few_shot_examples.json # Example question-SQL pairs (60+ examples)
 │   ├── chroma_db/          # Vector store for RAG
 │   └── custom/             # Custom databases
-├── prompts/
-│   ├── sql_generator.md    # SQL generation prompt
-│   └── disambiguator.md    # Ambiguity detection prompt
 ├── static/
 │   ├── index.html          # Main UI
 │   ├── style.css           # Styles

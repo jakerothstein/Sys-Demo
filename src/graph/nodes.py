@@ -342,11 +342,47 @@ Return ONLY the JSON object, no other text."""
 def retrieve_examples_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any]:
     """
     Retrieve relevant few-shot examples from the vector store.
+    Implements Schema-Aware Filtering to only use examples with tables that exist
+    in the current database.
     """
     try:
         from src.data.vector_store import get_vector_store
+        
+        # Get current schema's valid table names
+        current_schema = load_schema_catalog()
+        valid_table_names = set(current_schema.get('tables', {}).keys())
+        
+        # Retrieve examples from vector store
         vector_store = get_vector_store()
-        examples = vector_store.retrieve(state.get('user_query', ''), n_results=3)
+        raw_examples = vector_store.retrieve(state.get('user_query', ''), n_results=10)  # Get more to filter
+        
+        # Filter examples: only keep if ALL tables in example exist in current schema
+        filtered_examples = []
+        for example in raw_examples:
+            example_tables = example.get('tables', [])
+            
+            # If no tables specified, include the example (can't filter)
+            if not example_tables:
+                filtered_examples.append(example)
+                continue
+            
+            # Check if ALL tables in this example exist in current schema
+            missing_tables = [t for t in example_tables if t not in valid_table_names]
+            
+            if missing_tables:
+                print(f"Skipping example '{example.get('question', '')[:50]}...' - references non-existent tables: {missing_tables}")
+            else:
+                filtered_examples.append(example)
+            
+            # Stop once we have enough valid examples
+            if len(filtered_examples) >= 3:
+                break
+        
+        if len(filtered_examples) < len(raw_examples):
+            print(f"Schema-aware filtering: kept {len(filtered_examples)} of {len(raw_examples)} examples")
+        
+        examples = filtered_examples[:3]
+        
     except Exception as e:
         print(f"Vector store error: {e}")
         examples = []

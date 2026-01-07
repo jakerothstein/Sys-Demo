@@ -117,11 +117,16 @@
                     <div class="card-header" onclick="toggleCard(this)">
                         <h3>Generated SQL</h3>
                         <div class="card-actions">
-                            <button id="save-example-btn" class="btn-small"
-                                onclick="event.stopPropagation(); saveAsExample();"
-                                title="Save this query as a few-shot example">
-                                💾 Save as Example
-                            </button>
+                            <div class="rating-group">
+                                <button class="btn-icon btn-thumbs-up"
+                                    onclick="event.stopPropagation(); submitRating(1);" title="Good result">
+                                    👍
+                                </button>
+                                <button class="btn-icon btn-thumbs-down"
+                                    onclick="event.stopPropagation(); submitRating(0);" title="Bad result">
+                                    👎
+                                </button>
+                            </div>
                             <span class="toggle-icon">▼</span>
                         </div>
                     </div>

@@ -182,6 +182,18 @@ function showHitl(result) {
 function showResults(result) {
     resultsSection.style.display = 'flex';
 
+    // Reset rating buttons for new results
+    const thumbsUpBtn = document.querySelector('.btn-thumbs-up');
+    const thumbsDownBtn = document.querySelector('.btn-thumbs-down');
+    if (thumbsUpBtn) {
+        thumbsUpBtn.classList.remove('selected');
+        thumbsUpBtn.disabled = false;
+    }
+    if (thumbsDownBtn) {
+        thumbsDownBtn.classList.remove('selected');
+        thumbsDownBtn.disabled = false;
+    }
+
     // SQL Output with variations
     let sqlHtml = result.sql || 'No SQL generated';
     if (result.sql_variations && result.sql_variations.length > 1) {
@@ -260,6 +272,17 @@ function showResults(result) {
                 <div class="plan-item-value" style="font-size: 0.8rem;">
                     ${result.few_shot_examples.map(ex => `"${ex.question}"`).join(', ')}
                 </div>
+            </div>
+        `;
+    }
+
+    // Show clarification if one was used
+    if (currentClarification || result.user_feedback) {
+        const clarificationText = currentClarification || result.user_feedback;
+        planHtml += `
+            <div class="user-clarification" style="grid-column: 1 / -1;">
+                <div class="user-clarification-label">Clarification Used</div>
+                <div class="user-clarification-text">"${clarificationText}"</div>
             </div>
         `;
     }
@@ -807,6 +830,85 @@ async function saveAsExample() {
 
 // Make saveAsExample available globally
 window.saveAsExample = saveAsExample;
+
+// Submit rating feedback (thumbs up/down)
+async function submitRating(rating) {
+    const query = queryInput.value.trim();
+    const sql = currentResult?.sql;
+
+    if (!query || !sql) {
+        showNotification('No query to rate', 'error');
+        return;
+    }
+
+    // Get all rating buttons
+    const thumbsUpBtn = document.querySelector('.btn-thumbs-up');
+    const thumbsDownBtn = document.querySelector('.btn-thumbs-down');
+
+    // Prompt for comment, especially if negative feedback
+    let comment = '';
+    if (rating === 0) {
+        comment = prompt('What was wrong with this result? (optional)');
+        if (comment === null) return; // User cancelled
+    } else {
+        // Optional comment for positive feedback
+        comment = prompt('Any additional comments? (optional)') || '';
+        if (comment === null) comment = '';
+    }
+
+    // Disable buttons while submitting
+    if (thumbsUpBtn) thumbsUpBtn.disabled = true;
+    if (thumbsDownBtn) thumbsDownBtn.disabled = true;
+
+    try {
+        const payload = {
+            session_id: SESSION_ID,
+            rating: rating,
+            question: query,
+            sql: sql,
+            comment: comment
+        };
+
+        // Include clarification if one was provided during HITL
+        if (currentClarification) {
+            payload.clarification = currentClarification;
+        }
+
+        const response = await fetch(`${API_BASE}/api/feedback/rate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Mark the selected button as selected
+            if (rating === 1 && thumbsUpBtn) {
+                thumbsUpBtn.classList.add('selected');
+            } else if (rating === 0 && thumbsDownBtn) {
+                thumbsDownBtn.classList.add('selected');
+            }
+
+            const ratingText = rating === 1 ? 'Positive' : 'Negative';
+            showNotification(`${ratingText} feedback recorded! Thank you.`, 'success');
+        } else {
+            showNotification(result.error || 'Failed to submit feedback', 'error');
+            // Re-enable buttons on error
+            if (thumbsUpBtn) thumbsUpBtn.disabled = false;
+            if (thumbsDownBtn) thumbsDownBtn.disabled = false;
+        }
+    } catch (error) {
+        console.error('Failed to submit rating:', error);
+        showNotification('Failed to submit feedback', 'error');
+        // Re-enable buttons on error
+        if (thumbsUpBtn) thumbsUpBtn.disabled = false;
+        if (thumbsDownBtn) thumbsDownBtn.disabled = false;
+    }
+}
+
+// Make submitRating available globally
+window.submitRating = submitRating;
 
 
 // ============== BENCHMARK MODE ==============

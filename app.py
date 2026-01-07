@@ -253,6 +253,64 @@ def save_example():
         return jsonify({"error": f"Failed to save example: {str(e)}"}), 500
 
 
+@app.route('/api/feedback/rate', methods=['POST'])
+def rate_feedback():
+    """Store user rating (thumbs up/down) feedback for RLHF."""
+    from datetime import datetime
+    
+    data = request.json
+    session_id = data.get('session_id', 'unknown')
+    rating = data.get('rating')  # 1 for thumbs up, 0 for thumbs down
+    question = data.get('question', '').strip()
+    sql = data.get('sql', '').strip()
+    comment = data.get('comment', '').strip()
+    clarification = data.get('clarification', '').strip()
+    
+    if rating is None or not question or not sql:
+        return jsonify({"error": "Rating, question, and SQL are required"}), 400
+    
+    feedback_path = os.path.join(os.path.dirname(__file__), 'data', 'user_feedback.json')
+    
+    try:
+        # Load existing feedback
+        if os.path.exists(feedback_path):
+            with open(feedback_path, 'r') as f:
+                feedback_data = json.load(f)
+        else:
+            feedback_data = {"feedback": []}
+        
+        # Create new feedback entry
+        new_feedback = {
+            "id": f"feedback_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}",
+            "session_id": session_id,
+            "timestamp": datetime.now().isoformat(),
+            "rating": rating,  # 1 = positive, 0 = negative
+            "question": question,
+            "sql": sql
+        }
+        
+        # Add optional fields if provided
+        if comment:
+            new_feedback["comment"] = comment
+        if clarification:
+            new_feedback["clarification"] = clarification
+        
+        # Append and save
+        feedback_data['feedback'].append(new_feedback)
+        
+        with open(feedback_path, 'w') as f:
+            json.dump(feedback_data, f, indent=4)
+        
+        return jsonify({
+            "success": True,
+            "message": "Feedback recorded",
+            "total_feedback": len(feedback_data['feedback'])
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to save feedback: {str(e)}"}), 500
+
+
 @app.route('/api/databases', methods=['GET'])
 def list_databases():
     """List available benchmark databases."""
@@ -621,6 +679,9 @@ def format_response(result: dict) -> dict:
         
         # Few-shot examples used
         'few_shot_examples': result.get('few_shot_examples', []),
+        
+        # User feedback/clarification if provided
+        'user_feedback': result.get('user_feedback', ''),
         
         # Debug info
         'retry_count': result.get('retry_count', 0),

@@ -135,6 +135,18 @@ class GoogleClient(BaseLLMClient):
             return response.text, token_data
         except Exception as e:
             error_str = str(e)
+            
+            # If logprobs is not enabled for this model
+            if "Logprobs is not enabled" in error_str:
+                print(f"Logprobs not supported for this model, falling back to standard generation")
+                generation_config = {"temperature": self.temperature}
+                if response_schema:
+                    generation_config["response_mime_type"] = "application/json"
+                    generation_config["response_schema"] = response_schema
+                
+                response = self.client.generate_content(prompt, generation_config=generation_config)
+                return response.text, []
+                
             # If structured output fails, retry without it
             if response_schema and ("response_schema" in error_str or "Unknown field" in error_str):
                 print(f"Structured output not supported, falling back to regular generation")
@@ -156,145 +168,11 @@ class GoogleClient(BaseLLMClient):
                 return response.text, token_data
             if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
                 raise RuntimeError(f"Rate limit exceeded. Please wait 30 seconds and try again. Error: {error_str[:200]}")
+            
+            # Add print so we can debug other underlying failures
+            print(f"GoogleClient generate Exception: {error_str}")
             raise
 
-
-class MockLLMClient(BaseLLMClient):
-    """Mock LLM client for testing without API keys."""
-    
-    def __init__(self):
-        pass
-    
-    def is_available(self) -> bool:
-        return True
-    
-    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
-        text = self._generate(prompt, response_schema, **kwargs)
-        # Create fake token data to test the frontend heatmap UI
-        import random
-        # Split text into chunks to simulate tokens
-        tokens = []
-        i = 0
-        while i < len(text):
-            chunk_size = random.randint(2, 6)
-            tokens.append(text[i:i + chunk_size])
-            i += chunk_size
-        
-        token_data = []
-        for t in tokens:
-            token_data.append({
-                "token": t,
-                "confidence": random.uniform(0.85, 1.0)
-            })
-        return text, token_data
-
-    def _generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
-        """Return mock responses based on prompt content."""
-        prompt_lower = prompt.lower()
-        
-        # Mock disambiguation - detect the new LLM-first prompt format
-        if "sql analyst" in prompt_lower and "analyze" in prompt_lower:
-            # Extract just the user query to check for vagueness
-            user_query = ""
-            for line in prompt.split('\n'):
-                if line.strip().lower().startswith('user query:'):
-                    user_query = line.split(':', 1)[1].strip().strip('"').lower()
-                    break
-            
-            # Check for vague markers only in the user query
-            # Note: Removed "?" since questions naturally end with question marks
-            is_vague = any(marker in user_query for marker in ["maybe", "probably", "stuff", "something like", "idk", "whatever"])
-            tables = self._extract_tables_from_prompt(prompt)
-            
-            if is_vague:
-                return json.dumps({
-                    "confidence": 0.4,
-                    "is_ambiguous": True,
-                    "detected_tables": tables[:2] if tables else [],
-                    "detected_intent": "select",
-                    "ambiguity_reasons": ["Query is unclear or incomplete"],
-                    "suggested_clarification": "Could you please clarify what you're looking for?"
-                })
-            else:
-                # Detect intent from query
-                intent = "select"
-                if "count" in prompt_lower or "how many" in prompt_lower:
-                    intent = "count"
-                elif "total" in prompt_lower or "sum" in prompt_lower:
-                    intent = "sum"
-                elif "top" in prompt_lower or "highest" in prompt_lower:
-                    intent = "ranking"
-                
-                return json.dumps({
-                    "confidence": 0.85,
-                    "is_ambiguous": False,
-                    "detected_tables": tables[:2] if tables else ["customers"],
-                    "detected_intent": intent,
-                    "ambiguity_reasons": [],
-                    "suggested_clarification": None
-                })
-        
-        # Mock SQL generation - extract table names from schema in prompt
-        if "sql developer" in prompt_lower or ("generate" in prompt_lower and "sql" in prompt_lower):
-            tables = self._extract_tables_from_prompt(prompt)
-            primary_table = tables[0] if tables else "customers"
-            
-            if "count" in prompt_lower or "how many" in prompt_lower:
-                return json.dumps({
-                    "sql_queries": [
-                        f"SELECT COUNT(*) as count FROM {primary_table};",
-                        f"SELECT COUNT(*) FROM {primary_table};",
-                        f"SELECT COUNT(*) as total FROM {primary_table};"
-                    ],
-                    "reasoning": "Counting all rows in the table"
-                })
-            elif "highest" in prompt_lower or "most" in prompt_lower or "max" in prompt_lower or "top" in prompt_lower:
-                return json.dumps({
-                    "sql_queries": [
-                        f"SELECT * FROM {primary_table} ORDER BY id DESC LIMIT 5;",
-                        f"SELECT * FROM {primary_table} ORDER BY id DESC LIMIT 10;",
-                        f"SELECT * FROM {primary_table} LIMIT 5;"
-                    ],
-                    "reasoning": "Getting top records from the table"
-                })
-            elif "show" in prompt_lower or "list" in prompt_lower:
-                return json.dumps({
-                    "sql_queries": [
-                        f"SELECT * FROM {primary_table} LIMIT 20;",
-                        f"SELECT * FROM {primary_table};",
-                        f"SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"
-                    ],
-                    "reasoning": "Listing records from the table"
-                })
-            else:
-                return json.dumps({
-                    "sql_queries": [
-                        f"SELECT * FROM {primary_table} LIMIT 10;",
-                        f"SELECT * FROM {primary_table};",
-                        f"SELECT * FROM {primary_table} ORDER BY 1 LIMIT 10;"
-                    ],
-                    "reasoning": "General query on the table"
-                })
-        
-        # Legacy format handling (backward compatibility)
-        if "analyze" in prompt_lower and "ambiguity" in prompt_lower:
-            return '{"confidence": 0.85, "is_ambiguous": false, "reasoning": "Query is clear."}'
-        
-        # Default response
-        return "Mock response for: " + prompt[:100]
-    
-    def _extract_tables_from_prompt(self, prompt: str) -> list:
-        """Extract table names from schema section of prompt."""
-        tables = []
-        lines = prompt.split('\n')
-        for line in lines:
-            # Look for "Table: tablename" or "### Table: tablename" pattern
-            line_stripped = line.strip()
-            if line_stripped.startswith('Table:') or line_stripped.startswith('### Table:'):
-                table_name = line_stripped.split(':', 1)[1].strip()
-                if table_name:
-                    tables.append(table_name)
-        return tables
 
 
 def create_llm_client(provider: str = "auto", **kwargs) -> BaseLLMClient:
@@ -302,15 +180,12 @@ def create_llm_client(provider: str = "auto", **kwargs) -> BaseLLMClient:
     Factory function to create an LLM client.
     
     Args:
-        provider: "anthropic", "google", "mock", or "auto" (tries in order)
+        provider: "anthropic", "google", or "auto" (tries in order)
         **kwargs: Additional arguments passed to the client
         
     Returns:
         An LLM client instance
     """
-    if provider == "mock":
-        return MockLLMClient()
-    
     if provider == "anthropic":
         client = AnthropicClient(**kwargs)
         if client.is_available():
@@ -336,8 +211,11 @@ def create_llm_client(provider: str = "auto", **kwargs) -> BaseLLMClient:
             print("Using Google Gemini")
             return google_client
         
-        # Fall back to mock
-        print("No LLM API keys found. Using mock client.")
-        return MockLLMClient()
+        raise RuntimeError(
+            "CRITICAL EXCEPTION: No LLM API keys found.\n"
+            "This pipeline requires either ANTHROPIC_API_KEY or GOOGLE_API_KEY "
+            "to be set in the environment variables.\n"
+            "Example: export GOOGLE_API_KEY='your-key-here'"
+        )
     
     raise ValueError(f"Unknown provider: {provider}")

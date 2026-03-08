@@ -26,8 +26,7 @@ CORS(app)
 config = PipelineConfig(
     confidence_threshold=0.7,
     max_retries=3,
-    num_sql_variations=3,
-    llm_provider=os.environ.get("LLM_PROVIDER", "mock")
+    llm_provider=os.environ.get("LLM_PROVIDER", "auto")
 )
 
 # Create LLM client (auto-detects available providers)

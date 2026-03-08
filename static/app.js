@@ -36,7 +36,7 @@ const hitlReasoning = document.getElementById('hitl-reasoning');
 const feedbackInput = document.getElementById('feedback-input');
 const feedbackBtn = document.getElementById('feedback-btn');
 const resultsSection = document.getElementById('results-section');
-const sqlOutput = document.getElementById('sql-output').querySelector('code');
+const sqlOutputContainer = document.getElementById('sql-output-container');
 const dataOutput = document.getElementById('data-output');
 const planOutput = document.getElementById('plan-output');
 const errorSection = document.getElementById('error-section');
@@ -170,8 +170,28 @@ function showHitl(result) {
 
     // Show ambiguity reasons
     const reasons = result.ambiguity_reasons || [];
+    let reasoningHtml = '';
+    
     if (reasons.length > 0) {
-        hitlReasoning.innerHTML = reasons.map(r => `<li>${r}</li>`).join('');
+        reasoningHtml += '<strong>Semantic Review:</strong><ul>';
+        reasoningHtml += reasons.map(r => `<li>${r}</li>`).join('');
+        reasoningHtml += '</ul>';
+    }
+    
+    // Add Mixture of Experts Evaluation if present
+    const evaluations = result.evaluation_results || [];
+    if (evaluations.length > 0) {
+        reasoningHtml += '<strong>Expert Evaluations:</strong><ul>';
+        evaluations.forEach(expertEval => {
+            const statusIcon = expertEval.is_approved ? '✅' : '❌';
+            const penaltyText = expertEval.confidence_penalty > 0 ? ` <span style="color: var(--error); font-weight: 500;">(-${(expertEval.confidence_penalty * 100).toFixed(0)}% penalty)</span>` : '';
+            reasoningHtml += `<li style="margin-bottom: 6px;">${statusIcon} <strong>${expertEval.expert}</strong>: ${expertEval.reasoning}${penaltyText}</li>`;
+        });
+        reasoningHtml += '</ul>';
+    }
+
+    if (reasoningHtml) {
+        hitlReasoning.innerHTML = reasoningHtml;
     } else {
         hitlReasoning.textContent = 'Query requires clarification.';
     }
@@ -195,15 +215,20 @@ function showResults(result) {
     }
 
     // SQL Output with variations
-    let sqlHtml = result.sql || 'No SQL generated';
+    let fallbackSqlHtml = result.sql || 'No SQL generated';
     if (result.sql_variations && result.sql_variations.length > 1) {
-        sqlHtml += '\n\n/* Other variations considered:\n';
+        fallbackSqlHtml += '\n\n/* Other variations considered:\n';
         result.sql_variations.slice(1).forEach((v, i) => {
-            sqlHtml += `   ${i + 2}. ${v}\n`;
+            fallbackSqlHtml += `   ${i + 2}. ${v}\n`;
         });
-        sqlHtml += '*/';
+        fallbackSqlHtml += '*/';
     }
-    sqlOutput.textContent = sqlHtml;
+    
+    if (result.token_confidence_map && result.token_confidence_map.length > 0) {
+        renderSqlHeatmap(result.token_confidence_map, sqlOutputContainer);
+    } else {
+        sqlOutputContainer.textContent = fallbackSqlHtml;
+    }
 
     // Data Output
     const data = result.data || [];
@@ -245,7 +270,7 @@ function showResults(result) {
 
     let planHtml = `
         <div class="plan-item">
-            <div class="plan-item-label">Confidence</div>
+            <div class="plan-item-label">Total Confidence</div>
             <div class="plan-item-value ${confidenceClass}">${(confidence * 100).toFixed(0)}%</div>
         </div>
         <div class="plan-item">
@@ -263,6 +288,27 @@ function showResults(result) {
             </div>
         </div>
     `;
+
+    // Show Mixture of Experts Extracted Evaluations
+    const evaluations = result.evaluation_results || [];
+    if (evaluations.length > 0) {
+        let evalList = evaluations.map(expertEval => {
+             const statusIcon = expertEval.is_approved ? '✅' : '❌';
+             const penaltyText = expertEval.confidence_penalty > 0 ? ` <span style="color: var(--error)">(-${(expertEval.confidence_penalty * 100).toFixed(0)}% penalty)</span>` : '';
+             return `<li style="margin-bottom: 6px;">${statusIcon} <strong>${expertEval.expert}</strong>: ${expertEval.reasoning}${penaltyText}</li>`;
+        }).join('');
+        
+        planHtml += `
+            <div class="plan-item" style="grid-column: 1 / -1;">
+                <div class="plan-item-label">Confidence Breakdown (Expert Evaluations)</div>
+                <div class="plan-item-value" style="font-size: 0.85rem; font-weight: normal; margin-top: 8px;">
+                    <ul style="list-style-type: none; padding-left: 0; margin-bottom: 0;">
+                        ${evalList}
+                    </ul>
+                </div>
+            </div>
+        `;
+    }
 
     // Show few-shot examples if used
     if (result.few_shot_examples && result.few_shot_examples.length > 0) {
@@ -298,6 +344,24 @@ function showDebugInfo(result) {
     if (result.sql) {
         errorMessage.innerHTML += `<br><strong>Last SQL Attempt:</strong><br><code>${result.sql}</code>`;
     }
+}
+
+function renderSqlHeatmap(tokenData, container) {
+    container.innerHTML = '';
+    
+    tokenData.forEach(item => {
+        const span = document.createElement('span');
+        span.textContent = item.token;
+        
+        if (item.confidence < 0.95) {
+            const intensity = 1.0 - item.confidence;
+            span.style.backgroundColor = `rgba(255, 99, 71, ${intensity})`;
+            const percent = (item.confidence * 100).toFixed(1);
+            span.title = `Confidence: ${percent}%`;
+        }
+        
+        container.appendChild(span);
+    });
 }
 
 function showError(message) {

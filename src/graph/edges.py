@@ -27,9 +27,9 @@ def should_clarify(state: AgentState, config: PipelineConfig) -> Literal["ask_us
     return "retrieve_examples"
 
 
-def should_generate_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["generate_sql", "ask_user"]:
+def should_evaluate_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["evaluate_sql", "ask_user"]:
     """
-    After consistency check, decide whether to proceed or ask for clarification.
+    After consistency check, decide whether to proceed to MoE evaluation or ask for clarification.
     """
     if not state.get('consistency_passed', True):
         # If variations differ significantly, we might need clarification
@@ -37,23 +37,24 @@ def should_generate_or_clarify(state: AgentState, config: PipelineConfig) -> Lit
         if not state.get('user_feedback'):
             return "ask_user"
     
-    return "generate_sql"
+    return "evaluate_sql"
 
 
 def should_execute_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["execute_sql", "ask_user"]:
     """
-    After SQL generation, check consistency before execution.
+    After Mixture of Experts evaluation, check confidence and approval before execution.
     
     Logic:
-    - If confidence is very high (>= 0.9), proceed anyway (query is clear)
-    - If consistency failed and no user feedback, ask for clarification
-    - Otherwise execute
+    - If confidence falls below the config threshold (from semantic phase or MoE penalties), and user hasn't intervened -> ask user
+    - If experts explicitly did NOT approve -> ask user
+    - Otherwise -> execute_sql
     """
-    # High confidence overrides consistency concerns
-    if state.get('confidence_score', 0) >= 0.9:
-        return "execute_sql"
+    # Force pause if explicitly denied, regardless of raw score remaining
+    if not state.get('expert_approved', True) and not state.get('user_feedback'):
+        return "ask_user"
     
-    if not state.get('consistency_passed', True) and not state.get('user_feedback'):
+    # Check updated overall confidence threshold taking MoE penalties into account
+    if state.get('confidence_score', 1.0) < config.confidence_threshold and not state.get('user_feedback'):
         return "ask_user"
     
     return "execute_sql"

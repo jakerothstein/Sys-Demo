@@ -15,11 +15,11 @@ except ImportError:
 from .state import AgentState, PipelineConfig
 from .nodes import (
     disambiguate_node, retrieve_examples_node, generate_sql_node,
-    consistency_check_node, execute_sql_node, debug_node,
+    consistency_check_node, evaluate_sql_node, execute_sql_node, debug_node,
     finalize_success_node, finalize_hitl_node, finalize_failure_node
 )
 from .edges import (
-    should_clarify, should_execute_or_clarify, 
+    should_clarify, should_evaluate_or_clarify, should_execute_or_clarify, 
     route_after_execution, route_after_debug
 )
 
@@ -61,6 +61,7 @@ class TextToSQLGraph:
         self.graph.add_node("retrieve_examples", wrap_node_no_llm(retrieve_examples_node))
         self.graph.add_node("generate_sql", wrap_node(generate_sql_node))
         self.graph.add_node("consistency_check", wrap_node(consistency_check_node))
+        self.graph.add_node("evaluate_sql", wrap_node(evaluate_sql_node))
         self.graph.add_node("execute_sql", wrap_node_no_llm(execute_sql_node))
         self.graph.add_node("debug", wrap_node(debug_node))
         self.graph.add_node("finalize_success", wrap_node_no_llm(finalize_success_node))
@@ -88,9 +89,19 @@ class TextToSQLGraph:
         # From generate_sql: go to consistency check
         self.graph.add_edge("generate_sql", "consistency_check")
         
-        # From consistency_check: check if we should execute or clarify
+        # From consistency_check: check if we should evaluate or clarify
         self.graph.add_conditional_edges(
             "consistency_check",
+            lambda s: should_evaluate_or_clarify(s, self.config),
+            {
+                "evaluate_sql": "evaluate_sql",
+                "ask_user": "finalize_hitl"
+            }
+        )
+        
+        # From evaluate_sql: check if we should execute or clarify (MoE penalties)
+        self.graph.add_conditional_edges(
+            "evaluate_sql",
             lambda s: should_execute_or_clarify(s, self.config),
             {
                 "execute_sql": "execute_sql",
@@ -177,6 +188,14 @@ class TextToSQLGraph:
         
         # Check consistency
         if not state.get('consistency_passed') and not state.get('user_feedback'):
+            state.update(finalize_hitl_node(state, self.config))
+            return dict(state)
+            
+        # Evaluate SQL (MoE)
+        state.update(evaluate_sql_node(state, self.config, self.llm_client))
+        
+        # Check MoE Approval and Pipeline final confidence score
+        if state.get('confidence_score', 1.0) < self.config.confidence_threshold and not state.get('user_feedback'):
             state.update(finalize_hitl_node(state, self.config))
             return dict(state)
         

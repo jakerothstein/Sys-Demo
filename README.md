@@ -242,6 +242,10 @@ Uses the LLM with:
 - Retrieved few-shot examples (RAG)
 - Disambiguation context (if provided)
 
+**Token-Level Confidence:**
+The pipeline requests token log probabilities from the LLM during generation (if supported). The log odds are converted to a linear confidence percentage using the exponential formula: `Confidence = exp(logprob)` (where `exp` is Euler's number `e` raised to the power of the log probability). This score is used in the UI to generate a confidence heatmap, where low-confidence tokens (< 95%) are highlighted in red.
+
+
 ### 4. Execution & Self-Correction
 - Validates SQL syntax
 - Executes in sandboxed environment

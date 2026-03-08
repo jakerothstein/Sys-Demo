@@ -289,7 +289,7 @@ Return ONLY the JSON object, no other text."""
     
     try:
         # Use structured output schema for guaranteed valid JSON
-        response = llm_client.generate(prompt, response_schema=DISAMBIGUATION_SCHEMA)
+        response, _ = llm_client.generate(prompt, response_schema=DISAMBIGUATION_SCHEMA)
         
         # Parse the response - with structured outputs this should always be valid JSON
         try:
@@ -463,7 +463,7 @@ Return ONLY the JSON object, no other text."""
 
     try:
         # Use structured output schema for guaranteed valid JSON
-        response = llm_client.generate(prompt, response_schema=SQL_GENERATION_SCHEMA)
+        response, token_data = llm_client.generate(prompt, response_schema=SQL_GENERATION_SCHEMA)
         
         # Parse the response - with structured outputs this should always be valid JSON
         try:
@@ -477,7 +477,8 @@ Return ONLY the JSON object, no other text."""
             if isinstance(sqls, list) and sqls:
                 return {
                     'generated_sqls': sqls,
-                    'selected_sql': sqls[0]
+                    'selected_sql': sqls[0],
+                    'token_confidence_map': token_data or []
                 }
         
         # Try to parse SQL_N: format as fallback (for non-JSON responses)
@@ -492,13 +493,15 @@ Return ONLY the JSON object, no other text."""
         if sqls:
             return {
                 'generated_sqls': sqls,
-                'selected_sql': sqls[0]
+                'selected_sql': sqls[0],
+                'token_confidence_map': token_data or []
             }
         
         # Last resort: return placeholder
         return {
             'generated_sqls': ["SELECT 1;"],
-            'selected_sql': "SELECT 1;"
+            'selected_sql': "SELECT 1;",
+            'token_confidence_map': token_data or [] if 'token_data' in locals() else []
         }
         
     except Exception as e:
@@ -541,7 +544,7 @@ Consider:
 
 Return your analysis as JSON."""
 
-            response = llm_client.generate(prompt, response_schema=CONSISTENCY_CHECK_SCHEMA)
+            response, _ = llm_client.generate(prompt, response_schema=CONSISTENCY_CHECK_SCHEMA)
             
             try:
                 result = json.loads(response)
@@ -609,6 +612,162 @@ def _structural_consistency_check(sqls: List[str]) -> Dict[str, Any]:
     return {
         'consistency_passed': consistency_passed,
         'consistency_analysis': analysis
+    }
+
+
+import re
+import sqlite3
+import os
+
+def evaluate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
+    """
+    Mixture of Experts (MoE) Evaluation Node
+    Runs generated SQL through multiple objective and LLM-based experts to adjust confidence and trigger HITL.
+    """
+    sql = state.get('selected_sql', '')
+    original_confidence = state.get('confidence_score', 0.5)
+    schema_context = state.get('schema_context', '')
+    user_query = state.get('user_query', '')
+    
+    if not sql:
+        return {'expert_approved': False, 'evaluation_results': [{'expert': 'System', 'confidence_penalty': 0.5, 'reasoning': 'No SQL generated to evaluate', 'is_approved': False}]}
+
+    results = []
+    total_penalty = 0.0
+
+    # 1. Objective Expert: AST Complexity
+    # Very basic AST complexity logic: count JOINs and nested select wrappers
+    join_count = sql.upper().count('JOIN')
+    subquery_count = sql.upper().count('(SELECT')
+    complexity_penalty = 0.0
+    reasoning = "Query structure looks manageable."
+    
+    if join_count > 3 or subquery_count > 2:
+        complexity_penalty = 0.2
+        reasoning = f"Query is highly complex ({join_count} JOINs, {subquery_count} subqueries) which increases risk of hallucinations."
+    
+    results.append({
+        'expert': 'Complexity Evaluator',
+        'is_approved': complexity_penalty == 0.0,
+        'confidence_penalty': complexity_penalty,
+        'reasoning': reasoning
+    })
+
+    # 2. Objective Expert: SQLite Dry-Run Validator 
+    # Attempt to simply parse the SQL statement against the active db mapping to catch obvious typos
+    syntax_penalty = 0.0
+    syntax_reasoning = "No syntax errors detected during static check."
+    try:
+        # Load active DB path
+        db_path = None
+        # `load_schema_catalog` is defined in this same file (`nodes.py`)
+        schema_cat = load_schema_catalog()
+        active_db = "company_analytics" # Defaulting for demo safety, ideally parse from session/config
+        
+        if schema_cat.get('databases', {}).get(active_db):
+            db_path = schema_cat['databases'][active_db].get('file')
+            
+        if db_path and os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            # EXPLAIN allows parsing without actually executing hazardous logic
+            cursor.execute(f"EXPLAIN QUERY PLAN {sql}")
+            conn.close()
+    except Exception as e:
+        syntax_penalty = 0.3
+        syntax_reasoning = f"SQL Syntax Error detected during dry-run validation: {str(e)}"
+    
+    results.append({
+        'expert': 'Execution Validator',
+        'is_approved': syntax_penalty == 0.0,
+        'confidence_penalty': syntax_penalty,
+        'reasoning': syntax_reasoning
+    })
+
+    # 3. Objective Expert: Token Confidence Evaluator
+    token_map = state.get('token_confidence_map', [])
+    token_penalty = 0.0
+    token_reasoning = "Token probabilities are within acceptable bounds."
+    
+    if token_map:
+        min_token_prob = min([t.get('confidence', 1.0) for t in token_map])
+        if min_token_prob < 0.75:
+            token_penalty = 0.15
+            token_reasoning = f"Generated query contains highly uncertain tokens (lowest confidence: {min_token_prob:.0%}). Risk of hallucination."
+    
+    results.append({
+        'expert': 'Token Confidence Evaluator',
+        'is_approved': token_penalty == 0.0,
+        'confidence_penalty': token_penalty,
+        'reasoning': token_reasoning
+    })
+
+    # LLM Experts
+    if llm_client:
+        expert_schema = {
+            "type": "object",
+            "properties": {
+                "is_approved": {"type": "boolean"},
+                "confidence_penalty": {"type": "number"},
+                "reasoning": {"type": "string"}
+            },
+            "required": ["is_approved", "confidence_penalty", "reasoning"]
+        }
+
+        # 3. LLM Expert: Schema & Syntax Validation
+        syntax_prompt = f"""You are a strict SQL Syntax and Schema alignment expert.
+Review the following query exactly as generated against the database schema.
+User Query: "{user_query}"
+Generated SQL: "{sql}"
+Schema Context: {schema_context}
+
+Task: Verify all identifiers (table names, column names) actually exist in the schema. Check for logical impossibilities or obvious type mismatches.
+Return a JSON object with:
+- is_approved (bool)
+- confidence_penalty (float 0.0 to 1.0, e.g. 0.0 for flawless, 0.4 for severe issues)
+- reasoning (string explaining your penalty, if any)
+"""
+        # 4. LLM Expert: Semantic Logic Expert
+        semantic_prompt = f"""You are a strict Data Analytics Business Logic expert.
+Review the intent of the user's query and compare it to the semantic logic generated in the SQL.
+User Query: "{user_query}"
+Generated SQL: "{sql}"
+
+Task: Look for logical oversights like integer vs float division errors, missing explicit GROUP BY variables when aggregating, or incorrect directional sorting.
+Return a JSON object with:
+- is_approved (bool)
+- confidence_penalty (float 0.0 to 1.0)
+- reasoning (string explaining your penalty, if any)
+"""
+        
+        try:
+            for prompt_text, expert_name in [(syntax_prompt, "Schema Alignment Expert"), (semantic_prompt, "Semantic Logic Expert")]:
+                llm_resp, _ = llm_client.generate(prompt_text, response_schema=expert_schema)
+                try:
+                    expert_eval = json.loads(llm_resp)
+                except:
+                    expert_eval = _parse_json_from_response(llm_resp)
+                
+                results.append({
+                    'expert': expert_name,
+                    'is_approved': expert_eval.get('is_approved', True),
+                    'confidence_penalty': float(expert_eval.get('confidence_penalty', 0.0)),
+                    'reasoning': expert_eval.get('reasoning', 'No reasoning provided')
+                })
+        except Exception as e:
+            print(f"MoE LLM Evaluation failed: {e}")
+
+    # Aggregate penalties
+    for r in results:
+        total_penalty += r.get('confidence_penalty', 0.0)
+        
+    final_confidence = max(0.0, original_confidence - total_penalty)
+    expert_approved = all([r.get('is_approved', True) for r in results])
+
+    return {
+        'evaluation_results': results,
+        'expert_approved': expert_approved,
+        'confidence_score': final_confidence  # Overwrite original mapping
     }
 
 

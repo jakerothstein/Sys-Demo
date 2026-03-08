@@ -671,6 +671,11 @@ def format_response(result: dict) -> dict:
         'sql_variations': result.get('generated_sqls', []),
         'consistency_passed': result.get('consistency_passed', True),
         'consistency_analysis': result.get('consistency_analysis', ''),
+        'token_confidence_map': result.get('token_confidence_map', []),
+        
+        # Expert Evaluation (MoE)
+        'evaluation_results': result.get('evaluation_results', []),
+        'expert_approved': result.get('expert_approved', True),
         
         # Execution details
         'data': [],

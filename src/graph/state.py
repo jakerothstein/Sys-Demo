@@ -32,10 +32,15 @@ class AgentState(TypedDict, total=False):
     few_shot_examples: List[dict]
     generated_sqls: List[str]  # Multiple variations for consistency check
     selected_sql: str
+    token_confidence_map: List[dict]
     
     # Consistency Check
     consistency_passed: bool
     consistency_analysis: str
+    
+    # Expert Evaluation (MoE)
+    evaluation_results: List[dict]
+    expert_approved: bool
     
     # Execution
     execution_result: Optional[dict]

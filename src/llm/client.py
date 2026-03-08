@@ -4,7 +4,8 @@ Supports native structured outputs for guaranteed valid JSON responses.
 """
 import json
 import os
-from typing import Optional, Dict, Any
+import math
+from typing import Optional, Dict, Any, Tuple, List
 from abc import ABC, abstractmethod
 
 
@@ -12,7 +13,7 @@ class BaseLLMClient(ABC):
     """Abstract base class for LLM clients."""
     
     @abstractmethod
-    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
         """Generate a response from the LLM.
         
         Args:
@@ -22,7 +23,7 @@ class BaseLLMClient(ABC):
             **kwargs: Additional arguments
             
         Returns:
-            Raw response text (guaranteed valid JSON if response_schema provided)
+            Tuple containing raw response text and optional token logprob data.
         """
         pass
     
@@ -51,7 +52,7 @@ class AnthropicClient(BaseLLMClient):
     def is_available(self) -> bool:
         return self.client is not None
     
-    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, max_tokens: int = 2000, **kwargs) -> str:
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, max_tokens: int = 2000, **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
         if not self.is_available():
             raise RuntimeError("Anthropic client not available")
         
@@ -77,7 +78,7 @@ class AnthropicClient(BaseLLMClient):
         else:
             message = self.client.messages.create(**message_params)
         
-        return message.content[0].text
+        return message.content[0].text, None
 
 
 class GoogleClient(BaseLLMClient):
@@ -100,13 +101,13 @@ class GoogleClient(BaseLLMClient):
     def is_available(self) -> bool:
         return self.client is not None
     
-    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
         if not self.is_available():
             raise RuntimeError("Google client not available")
         
         try:
             # Build generation config
-            generation_config = {"temperature": self.temperature}
+            generation_config = {"temperature": self.temperature, "response_logprobs": True, "logprobs": 1}
             
             # Use structured output when schema is provided
             # Note: Gemini uses 'response_schema' parameter, not 'response_json_schema'
@@ -118,15 +119,41 @@ class GoogleClient(BaseLLMClient):
                 prompt,
                 generation_config=generation_config
             )
-            return response.text
+            
+            token_data = []
+            if getattr(response, "candidates", None) and response.candidates:
+                candidate = response.candidates[0]
+                if getattr(candidate, "logprobs_result", None) and getattr(candidate.logprobs_result, "top_candidates", None):
+                    for token_candidates in candidate.logprobs_result.top_candidates:
+                        if getattr(token_candidates, "candidates", None) and token_candidates.candidates:
+                            top_candidate = token_candidates.candidates[0]
+                            token_str = top_candidate.token
+                            logprob = getattr(top_candidate, "log_probability", 0.0)
+                            linear_prob = math.exp(logprob)
+                            token_data.append({"token": token_str, "confidence": linear_prob})
+                            
+            return response.text, token_data
         except Exception as e:
             error_str = str(e)
             # If structured output fails, retry without it
             if response_schema and ("response_schema" in error_str or "Unknown field" in error_str):
                 print(f"Structured output not supported, falling back to regular generation")
-                generation_config = {"temperature": self.temperature}
+                generation_config = {"temperature": self.temperature, "response_logprobs": True, "logprobs": 1}
                 response = self.client.generate_content(prompt, generation_config=generation_config)
-                return response.text
+                
+                token_data = []
+                if getattr(response, "candidates", None) and response.candidates:
+                    candidate = response.candidates[0]
+                    if getattr(candidate, "logprobs_result", None) and getattr(candidate.logprobs_result, "top_candidates", None):
+                        for token_candidates in candidate.logprobs_result.top_candidates:
+                            if getattr(token_candidates, "candidates", None) and token_candidates.candidates:
+                                top_candidate = token_candidates.candidates[0]
+                                token_str = top_candidate.token
+                                logprob = getattr(top_candidate, "log_probability", 0.0)
+                                linear_prob = math.exp(logprob)
+                                token_data.append({"token": token_str, "confidence": linear_prob})
+                                
+                return response.text, token_data
             if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
                 raise RuntimeError(f"Rate limit exceeded. Please wait 30 seconds and try again. Error: {error_str[:200]}")
             raise
@@ -141,7 +168,27 @@ class MockLLMClient(BaseLLMClient):
     def is_available(self) -> bool:
         return True
     
-    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
+        text = self._generate(prompt, response_schema, **kwargs)
+        # Create fake token data to test the frontend heatmap UI
+        import random
+        # Split text into chunks to simulate tokens
+        tokens = []
+        i = 0
+        while i < len(text):
+            chunk_size = random.randint(2, 6)
+            tokens.append(text[i:i + chunk_size])
+            i += chunk_size
+        
+        token_data = []
+        for t in tokens:
+            token_data.append({
+                "token": t,
+                "confidence": random.uniform(0.85, 1.0)
+            })
+        return text, token_data
+
+    def _generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """Return mock responses based on prompt content."""
         prompt_lower = prompt.lower()
         

@@ -23,6 +23,10 @@ class AgentState(TypedDict, total=False):
     detected_intent: str
     schema_context: str
     
+    # Pre-Generation (DAIL-SQL)
+    draft_sql: str
+    query_skeleton: str
+    
     # HITL
     needs_clarification: bool
     clarification_message: str

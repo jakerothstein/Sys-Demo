@@ -14,7 +14,7 @@ except ImportError:
 
 from .state import AgentState, PipelineConfig
 from .nodes import (
-    disambiguate_node, retrieve_examples_node, generate_sql_node,
+    disambiguate_node, generate_draft_sql_node, retrieve_examples_node, generate_sql_node,
     consistency_check_node, evaluate_sql_node, execute_sql_node, debug_node,
     finalize_success_node, finalize_hitl_node, finalize_failure_node
 )
@@ -58,6 +58,7 @@ class TextToSQLGraph:
         
         # Add nodes
         self.graph.add_node("disambiguate", wrap_node(disambiguate_node))
+        self.graph.add_node("generate_draft_sql", wrap_node(generate_draft_sql_node))
         self.graph.add_node("retrieve_examples", wrap_node_no_llm(retrieve_examples_node))
         self.graph.add_node("generate_sql", wrap_node(generate_sql_node))
         self.graph.add_node("consistency_check", wrap_node(consistency_check_node))
@@ -79,9 +80,12 @@ class TextToSQLGraph:
             lambda s: should_clarify(s, self.config),
             {
                 "ask_user": "finalize_hitl",
-                "retrieve_examples": "retrieve_examples"
+                "retrieve_examples": "generate_draft_sql"
             }
         )
+        
+        # From generate_draft_sql: go to retrieve_examples
+        self.graph.add_edge("generate_draft_sql", "retrieve_examples")
         
         # From retrieve_examples: go to generate
         self.graph.add_edge("retrieve_examples", "generate_sql")
@@ -176,6 +180,9 @@ class TextToSQLGraph:
         if state.get('needs_clarification') and not state.get('user_feedback'):
             state.update(finalize_hitl_node(state, self.config))
             return dict(state)
+        
+        # Generate Draft SQL
+        state.update(generate_draft_sql_node(state, self.config, self.llm_client))
         
         # Retrieve examples
         state.update(retrieve_examples_node(state, self.config))

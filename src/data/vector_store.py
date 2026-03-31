@@ -4,7 +4,21 @@ Supports Hybrid Search (semantic + keyword) for improved retrieval.
 """
 import json
 import os
+import re
 from typing import List, Dict, Any, Optional
+
+def mask_sql_to_skeleton(sql: str) -> str:
+    """
+    Mask concrete values in SQL to generate a structural skeleton for comparison.
+    Replaces string literals (e.g., 'value') and numbers with '<val>'.
+    """
+    if not sql:
+        return ""
+    # Strip string literals
+    sql_sk = re.sub(r"'[^']*'", "<val>", sql)
+    # Strip numeric literals
+    sql_sk = re.sub(r"\b\d+(\.\d+)?\b", "<val>", sql_sk)
+    return sql_sk.lower()
 
 try:
     import chromadb
@@ -90,7 +104,7 @@ class VectorStore:
         else:
             print(f"Loaded {len(self.examples)} examples into fallback store.")
     
-    def retrieve(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, n_results: int = 3, skeleton: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Retrieve the most similar few-shot examples using Hybrid Search.
         
@@ -98,16 +112,18 @@ class VectorStore:
         - Semantic search via ChromaDB embeddings
         - Keyword matching for exact term overlap
         - Boost of 0.2 for results with keyword matches
+        - Boost of 0.3 for structural similarity (DAIL-Selection)
         
         Args:
             query: The user's natural language question
             n_results: Number of examples to retrieve
+            skeleton: Optional draft SQL skeleton for structural matching
             
         Returns:
             List of example dictionaries with question, sql, and hybrid score
         """
         if not CHROMADB_AVAILABLE or self.collection is None:
-            return self._fallback_retrieve(query, n_results)
+            return self._fallback_retrieve(query, n_results, skeleton)
         
         # Get more results from semantic search to enable hybrid ranking
         semantic_n = min(n_results * 2, max(self.collection.count(), 1))
@@ -143,8 +159,23 @@ class VectorStore:
                 # Apply 0.2 boost for keyword matches
                 result['keyword_boost'] = 0.2 * (overlap / max(len(query_words), 1))
         
+        # Add structural boost - compare target skeleton to example skeletons
+        if skeleton:
+            target_sk_words = set(skeleton.lower().split())
+            for question, result in semantic_results.items():
+                ex_sk = mask_sql_to_skeleton(result['sql'])
+                ex_sk_words = set(ex_sk.split())
+                sk_overlap = len(target_sk_words & ex_sk_words)
+                if sk_overlap > 0:
+                    result['structural_boost'] = 0.3 * (sk_overlap / max(len(target_sk_words), 1))
+                else:
+                    result['structural_boost'] = 0.0
+        else:
+            for result in semantic_results.values():
+                result['structural_boost'] = 0.0
+        
         # Combine also with keyword-only fallback results (items not in semantic)
-        keyword_results = self._fallback_retrieve(query, n_results * 2)
+        keyword_results = self._fallback_retrieve(query, n_results * 2, skeleton)
         for kr in keyword_results:
             if kr['question'] not in semantic_results:
                 # Add keyword-only result with low base semantic score
@@ -154,13 +185,14 @@ class VectorStore:
                     'intent': kr.get('intent', ''),
                     'tables': kr.get('tables', []),
                     'semantic_score': 0.1,  # Low base score for keyword-only
-                    'keyword_boost': kr['similarity'] * 0.3  # Scale keyword similarity
+                    'keyword_boost': kr['similarity'] * 0.3,  # Scale keyword similarity
+                    'structural_boost': 0.0 # Handled in fallback_retrieve combined similarity but keep 0 here
                 }
         
         # Calculate hybrid scores and rank
         hybrid_results = []
         for result in semantic_results.values():
-            hybrid_score = result['semantic_score'] + result['keyword_boost']
+            hybrid_score = result['semantic_score'] + result.get('keyword_boost', 0.0) + result.get('structural_boost', 0.0)
             hybrid_results.append({
                 'question': result['question'],
                 'sql': result['sql'],
@@ -173,15 +205,26 @@ class VectorStore:
         hybrid_results.sort(key=lambda x: x['similarity'], reverse=True)
         return hybrid_results[:n_results]
     
-    def _fallback_retrieve(self, query: str, n_results: int) -> List[Dict[str, Any]]:
-        """Simple keyword-based fallback retrieval."""
+    def _fallback_retrieve(self, query: str, n_results: int, skeleton: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Simple keyword-based fallback retrieval with optional structural matching."""
         query_words = set(query.lower().split())
+        target_sk_words = set(skeleton.lower().split()) if skeleton else set()
         
         scored_examples = []
         for ex in self.examples:
             ex_words = set(ex['question'].lower().split())
             overlap = len(query_words & ex_words)
-            scored_examples.append((overlap, ex))
+            
+            sk_boost = 0.0
+            if skeleton:
+                ex_sk = mask_sql_to_skeleton(ex['sql'])
+                ex_sk_words = set(ex_sk.split())
+                sk_overlap = len(target_sk_words & ex_sk_words)
+                sk_boost = sk_overlap / max(len(target_sk_words), 1)
+            
+            # Combine semantic keyword overlap and structural overlap
+            total_score = (overlap / max(len(query_words), 1)) + (0.5 * sk_boost)
+            scored_examples.append((total_score, ex))
         
         # Sort by overlap score descending
         scored_examples.sort(key=lambda x: x[0], reverse=True)

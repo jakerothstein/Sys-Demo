@@ -55,6 +55,15 @@ CONSISTENCY_CHECK_SCHEMA = {
     "required": ["are_equivalent", "confidence", "recommendation"]
 }
 
+DRAFT_SQL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "draft_sql": {"type": "string"},
+        "query_skeleton": {"type": "string"}
+    },
+    "required": ["draft_sql", "query_skeleton"]
+}
+
 
 def load_schema_catalog() -> Dict[str, Any]:
     """Load the schema catalog - prefers current database, falls back to JSON."""
@@ -79,73 +88,79 @@ def load_schema_catalog() -> Dict[str, Any]:
 
 def format_schema_for_prompt(schema: Dict[str, Any]) -> str:
     """
-    Format schema catalog into a comprehensive prompt-friendly string.
-    Includes table descriptions, column types, primary keys, foreign keys,
-    and relationship summaries for LLM understanding.
+    Format schema catalog into standard SQL DDL (CREATE TABLE) strings.
+    DAIL-SQL highlights that LLMs inherently understand DDL better than custom textual representations.
     
     Supports minimal schema mode (available_tables only) for context overflow prevention.
     """
     if not schema:
         return "No schema available."
     
-    lines = [f"Database: {schema.get('database_name', 'unknown')}\n"]
+    lines = [f"-- Database: {schema.get('database_name', 'unknown')}\n"]
     
     # Handle minimal schema mode (only table names, no column details)
     # This is used when schema linking fails or returns no results
     if 'available_tables' in schema and not schema.get('tables'):
-        lines.append("\n### Available Tables (schema linking found no specific tables):")
-        lines.append("Note: Ask for clarification about which tables to use.\n")
+        lines.append("-- Available Tables (schema linking found no specific tables):")
+        lines.append("-- Note: Ask for clarification about which tables to use.\n")
         for table in schema['available_tables']:
-            lines.append(f"  - {table}")
+            lines.append(f"--   - {table}")
         if schema.get('error'):
-            lines.append(f"\n(Schema linking error: {schema['error']})")
+            lines.append(f"\n-- (Schema linking error: {schema['error']})")
         return "\n".join(lines)
     
-    # Track foreign key relationships for summary
     relationships = []
     
     for table_name, table_info in schema.get('tables', {}).items():
-        lines.append(f"\n### Table: {table_name}")
-        lines.append(f"Description: {table_info.get('description', '')}")
-        lines.append("Columns:")
+        table_desc = table_info.get('description', '')
+        if table_desc:
+            lines.append(f"-- Table Description: {table_desc}")
+            
+        lines.append(f"CREATE TABLE {table_name} (")
+        col_lines = []
         
         for col_name, col_info in table_info.get('columns', {}).items():
             col_type = col_info.get('type', 'TEXT')
             col_desc = col_info.get('description', '')
             
             # Build column annotation
-            annotations = []
+            col_def = f"    {col_name} {col_type}"
             if col_info.get('is_primary_key'):
-                annotations.append("PRIMARY KEY")
+                col_def += " PRIMARY KEY"
+                
             if col_info.get('foreign_key'):
                 fk_target = col_info['foreign_key']
-                annotations.append(f"FOREIGN KEY -> {fk_target}")
-                relationships.append(f"{table_name}.{col_name} references {fk_target}")
-            
-            annotation_str = f" [{', '.join(annotations)}]" if annotations else ""
-            samples = ""
+                # Store relationship to add as a comment later or inline
+                relationships.append(f"FOREIGN KEY ({col_name}) REFERENCES {fk_target.split('.')[0]}({fk_target.split('.')[1] if '.' in fk_target else 'id'})")
+                
+            if col_desc:
+                col_def += f" -- {col_desc}"
+                
             if col_info.get('sample_values'):
                 sample_list = ', '.join(f"'{v}'" for v in col_info['sample_values'][:3])
-                samples = f" (examples: {sample_list})"
+                col_def += f" (examples: {sample_list})"
+                
+            col_lines.append(col_def)
             
-            lines.append(f"  - {col_name}: {col_type}{annotation_str} - {col_desc}{samples}")
-    
-    # Add relationship summary section
+        lines.append(",\n".join(col_lines))
+        lines.append(");")
+        lines.append("")
+        
     if relationships:
-        lines.append("\n### Table Relationships (Foreign Keys):")
+        lines.append("-- Table Relationships (Foreign Keys):")
         for rel in relationships:
-            lines.append(f"  - {rel}")
-    
+            lines.append(f"--   - {rel}")
+            
     # Add semantic notes if present
     semantic_notes = schema.get('semantic_notes', {})
     if semantic_notes:
-        lines.append("\n### Semantic Notes (Ambiguous Terms):")
+        lines.append("\n-- Semantic Notes (Ambiguous Terms):")
         for term, info in semantic_notes.items():
             if info.get('ambiguous'):
                 interpretations = info.get('possible_interpretations', [])
                 interp_str = ', '.join(i.get('term', '') for i in interpretations)
-                lines.append(f"  - '{term}' can mean: {interp_str}")
-    
+                lines.append(f"--   - '{term}' can mean: {interp_str}")
+                
     return "\n".join(lines)
 
 
@@ -339,6 +354,54 @@ Return ONLY the JSON object, no other text."""
         return default_response
 
 
+def generate_draft_sql_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
+    """
+    Generate an initial structural Draft SQL to be used for structural similarity search (DAIL-Selection).
+    This performs a zero-shot prompt to generate an initial skeleton before full example retrieval.
+    """
+    user_query = state.get('user_query', '')
+    schema_context = state.get('schema_context', '')
+    
+    if not llm_client:
+        return {
+            'draft_sql': "SELECT * FROM table",
+            'query_skeleton': "SELECT * FROM table"
+        }
+        
+    prompt = f"""You are an expert SQL analyst. Based on the user query and database schema, generate a Draft SQL query and its structural skeleton.
+The skeleton should anonymize concrete values, replacing them with placeholders, to highlight the query's structure (e.g., SELECT col1 FROM tab1 WHERE col2 = <val>).
+
+DATABASE SCHEMA:
+{schema_context}
+
+USER QUERY: "{user_query}"
+
+Return a JSON object with:
+{{
+    "draft_sql": "<the draft sql query>",
+    "query_skeleton": "<the structural skeleton of the query>"
+}}
+Return ONLY the JSON object, no other text."""
+
+    try:
+        response, _ = llm_client.generate(prompt, response_schema=DRAFT_SQL_SCHEMA)
+        try:
+            parsed = json.loads(response)
+        except json.JSONDecodeError:
+            parsed = _parse_json_from_response(response)
+            
+        return {
+            'draft_sql': parsed.get('draft_sql', ''),
+            'query_skeleton': parsed.get('query_skeleton', '')
+        }
+    except Exception as e:
+        print(f"Draft SQL generation error: {e}")
+        return {
+            'draft_sql': "SELECT * FROM table",
+            'query_skeleton': "SELECT * FROM table"
+        }
+
+
 def retrieve_examples_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any]:
     """
     Retrieve relevant few-shot examples from the vector store.
@@ -350,9 +413,13 @@ def retrieve_examples_node(state: AgentState, config: PipelineConfig) -> Dict[st
     try:
         from src.data.vector_store import get_vector_store
         
-        # 1. Retrieve raw examples based on semantic similarity
+        # 1. Retrieve raw examples based on semantic similarity and structural similarity
         vector_store = get_vector_store()
-        raw_examples = vector_store.retrieve(state.get('user_query', ''), n_results=10) # Fetch more to allow for filtering
+        raw_examples = vector_store.retrieve(
+            state.get('user_query', ''), 
+            skeleton=state.get('query_skeleton', ''),
+            n_results=10
+        ) # Fetch more to allow for filtering
         
         # 2. Load current schema to validate table existence
         schema = load_schema_catalog()

@@ -88,6 +88,7 @@ class VectorStore:
             metadatas = [
                 {
                     'sql': ex['sql'],
+                    'sql_skeleton': mask_sql_to_skeleton(ex['sql']),
                     'intent': ex.get('intent', ''),
                     'tables': ','.join(ex.get('tables', [])),
                     'difficulty': ex.get('difficulty', 'medium')

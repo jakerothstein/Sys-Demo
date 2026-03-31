@@ -192,6 +192,50 @@ def filter_schema_to_tables(schema: Dict[str, Any], table_names: List[str]) -> D
     }
 
 
+def extract_tables_from_sql(sql: str) -> List[str]:
+    """
+    Extract table names from SQL by parsing FROM and JOIN clauses.
+    Deterministic regex operation — no LLM call.
+    
+    Handles:
+      - FROM table_name
+      - FROM table_name AS alias
+      - JOIN table_name
+      - JOIN table_name AS alias
+      - Comma-separated FROM lists: FROM t1, t2
+    """
+    if not sql:
+        return []
+    
+    tables = set()
+    sql_upper = sql.upper()
+    
+    # Match FROM <tables> and JOIN <table>
+    # Pattern: FROM/JOIN followed by a table name (word chars only)
+    from_join_pattern = re.compile(
+        r'(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+        re.IGNORECASE
+    )
+    for match in from_join_pattern.finditer(sql):
+        table_name = match.group(1)
+        # Exclude SQL keywords that can follow FROM/JOIN
+        if table_name.upper() not in ('SELECT', 'WHERE', 'SET', 'VALUES', 'INTO', 'LATERAL'):
+            tables.add(table_name)
+    
+    # Handle comma-separated tables after FROM: FROM t1, t2, t3
+    comma_from = re.compile(
+        r'FROM\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*)+)',
+        re.IGNORECASE
+    )
+    for match in comma_from.finditer(sql):
+        for part in match.group(1).split(','):
+            table_name = part.strip().split()[0]  # Take name before any alias
+            if table_name.upper() not in ('SELECT', 'WHERE', 'SET', 'VALUES', 'INTO', 'LATERAL'):
+                tables.add(table_name)
+    
+    return list(tables)
+
+
 def _parse_json_from_response(response: str) -> Dict[str, Any]:
     """
     Extract and parse JSON from an LLM response.
@@ -467,6 +511,10 @@ def generate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None
     """
     Generate SQL using LLM based on the query, schema, and context.
     Generates multiple variations for consistency checking.
+    
+    Uses draft-SQL backtracing (Component 5 of DAIL-SQL plan):
+    If a draft_sql exists, extract the tables it references and re-prune
+    the schema context to only those tables for a tighter prompt.
     """
     user_query = state.get('user_query', '')
     if state.get('user_feedback'):
@@ -476,6 +524,17 @@ def generate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None
     few_shot_examples = state.get('few_shot_examples', [])
     error_context = state.get('debug_analysis', '')
     num_variations = config.num_sql_variations
+    
+    # Draft-SQL Backtracing: re-prune schema using tables from draft
+    draft_sql = state.get('draft_sql', '')
+    if draft_sql and draft_sql != 'SELECT * FROM table':
+        referenced_tables = extract_tables_from_sql(draft_sql)
+        if referenced_tables:
+            full_schema = load_schema_catalog()
+            pruned_schema = filter_schema_to_tables(full_schema, referenced_tables)
+            if pruned_schema.get('tables'):
+                schema_context = format_schema_for_prompt(pruned_schema)
+                print(f"Draft backtracing: pruned schema to {len(pruned_schema['tables'])} tables: {list(pruned_schema['tables'].keys())}")
     
     if not llm_client:
         # Without LLM, return a placeholder that will likely fail gracefully

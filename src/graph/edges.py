@@ -7,24 +7,24 @@ from typing import Literal
 from .state import AgentState, PipelineConfig
 
 
-def should_clarify(state: AgentState, config: PipelineConfig) -> Literal["ask_user", "retrieve_examples"]:
+def should_clarify(state: AgentState, config: PipelineConfig) -> Literal["ask_user", "generate_draft_sql"]:
     """
-    Decision gate: Should we ask the user for clarification or proceed to SQL generation?
+    Decision gate: Should we ask the user for clarification or proceed to draft SQL generation?
     
     Logic:
     1. If confidence is low and no feedback provided -> ask user
     2. If consistency check failed -> ask user
-    3. Otherwise -> proceed to generation
+    3. Otherwise -> proceed to draft SQL generation (DAIL-SQL two-step)
     """
     # Check if we already have user feedback
     if state.get('user_feedback'):
-        return "retrieve_examples"
+        return "generate_draft_sql"
     
     # Check confidence threshold
     if state.get('needs_clarification', False):
         return "ask_user"
     
-    return "retrieve_examples"
+    return "generate_draft_sql"
 
 
 def should_evaluate_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["evaluate_sql", "ask_user"]:

@@ -80,7 +80,7 @@ class TextToSQLGraph:
             lambda s: should_clarify(s, self.config),
             {
                 "ask_user": "finalize_hitl",
-                "retrieve_examples": "generate_draft_sql"
+                "generate_draft_sql": "generate_draft_sql"
             }
         )
         

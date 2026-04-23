@@ -675,7 +675,19 @@ def format_response(result: dict) -> dict:
         # Expert Evaluation (MoE)
         'evaluation_results': result.get('evaluation_results', []),
         'expert_approved': result.get('expert_approved', True),
-        
+
+        # Uncertainty signals (Tier-1 research integration)
+        'execution_entropy': result.get('execution_entropy', 0.0),
+        'semantic_entropy': result.get('semantic_entropy', 0.0),
+        'composite_confidence': result.get('composite_confidence', 0.0),
+        'sequence_logprob': result.get('sequence_logprob'),
+        'min_token_confidence': result.get('min_token_confidence'),
+        'result_clusters': result.get('result_clusters', []),
+        'skeleton_clusters': result.get('skeleton_clusters', []),
+        'sql_executions': result.get('sql_executions', []),
+        'quality_gate_passed': result.get('quality_gate_passed', None),
+        'quality_gate_reasons': result.get('quality_gate_reasons', []),
+
         # Execution details
         'data': [],
         'columns': [],

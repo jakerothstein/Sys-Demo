@@ -1,0 +1,550 @@
+{
+  "_meta": {
+    "description": "Labeled benchmark for ambiguity detection. Each item has expected_hitl=true when the pipeline SHOULD ask the user for clarification, and expected_hitl=false when the pipeline should confidently answer.",
+    "databases": ["company_analytics", "sample_company", "sec_data_v2"],
+    "version": 1
+  },
+  "questions": [
+    {
+      "id": "ca_ans_01",
+      "db_id": "company_analytics",
+      "question": "How many employees are in the company?",
+      "expected_hitl": false,
+      "category": "simple_count",
+      "rationale": "Unambiguous: single table, obvious aggregate."
+    },
+    {
+      "id": "ca_ans_02",
+      "db_id": "company_analytics",
+      "question": "List all departments and their budgets.",
+      "expected_hitl": false,
+      "category": "simple_projection",
+      "rationale": "departments.name + departments.budget — one table."
+    },
+    {
+      "id": "ca_ans_03",
+      "db_id": "company_analytics",
+      "question": "What is the average salary of all employees?",
+      "expected_hitl": false,
+      "category": "simple_aggregate",
+      "rationale": "AVG(salary) on employees."
+    },
+    {
+      "id": "ca_ans_04",
+      "db_id": "company_analytics",
+      "question": "Show the five employees with the highest salaries.",
+      "expected_hitl": false,
+      "category": "order_limit",
+      "rationale": "ORDER BY salary DESC LIMIT 5."
+    },
+    {
+      "id": "ca_ans_05",
+      "db_id": "company_analytics",
+      "question": "How many customers are in California?",
+      "expected_hitl": false,
+      "category": "filter_count",
+      "rationale": "Literal state filter on customers.state."
+    },
+    {
+      "id": "ca_ans_06",
+      "db_id": "company_analytics",
+      "question": "List every product whose price is greater than 100.",
+      "expected_hitl": false,
+      "category": "filter_projection",
+      "rationale": "Single-table predicate."
+    },
+    {
+      "id": "ca_ans_07",
+      "db_id": "company_analytics",
+      "question": "How many completed sales happened in 2024?",
+      "expected_hitl": false,
+      "category": "filter_date_count",
+      "rationale": "status = 'completed' AND strftime('%Y', sale_date) = '2024'."
+    },
+    {
+      "id": "ca_ans_08",
+      "db_id": "company_analytics",
+      "question": "For each department, how many employees work in it?",
+      "expected_hitl": false,
+      "category": "group_by_count",
+      "rationale": "Classic JOIN + GROUP BY departments."
+    },
+    {
+      "id": "ca_ans_09",
+      "db_id": "company_analytics",
+      "question": "What is the total revenue from all completed sales?",
+      "expected_hitl": false,
+      "category": "aggregate_join",
+      "rationale": "SUM(quantity * unit_price * (1-discount_percent/100)) WHERE status='completed'."
+    },
+    {
+      "id": "ca_ans_10",
+      "db_id": "company_analytics",
+      "question": "Which customer has placed the most completed orders?",
+      "expected_hitl": false,
+      "category": "join_group_order",
+      "rationale": "JOIN sales + customers GROUP BY customer ORDER BY count DESC LIMIT 1."
+    },
+    {
+      "id": "ca_ans_11",
+      "db_id": "company_analytics",
+      "question": "List all products that currently have zero inventory anywhere.",
+      "expected_hitl": false,
+      "category": "filter_group",
+      "rationale": "GROUP BY product, SUM(quantity) = 0."
+    },
+    {
+      "id": "ca_ans_12",
+      "db_id": "company_analytics",
+      "question": "Show each employee along with the name of the department they belong to.",
+      "expected_hitl": false,
+      "category": "join_projection",
+      "rationale": "JOIN on department_id."
+    },
+    {
+      "id": "ca_ans_13",
+      "db_id": "company_analytics",
+      "question": "How many active projects exist?",
+      "expected_hitl": false,
+      "category": "filter_count",
+      "rationale": "status='active'."
+    },
+    {
+      "id": "ca_ans_14",
+      "db_id": "company_analytics",
+      "question": "List the top 3 products by total quantity sold in completed sales.",
+      "expected_hitl": false,
+      "category": "group_order_limit",
+      "rationale": "SUM(quantity), ORDER BY DESC LIMIT 3."
+    },
+    {
+      "id": "ca_ans_15",
+      "db_id": "company_analytics",
+      "question": "Show every warehouse's name and city.",
+      "expected_hitl": false,
+      "category": "filter_projection",
+      "rationale": "type='warehouse' on locations."
+    },
+    {
+      "id": "ca_ans_16",
+      "db_id": "company_analytics",
+      "question": "What is the most expensive product by price?",
+      "expected_hitl": false,
+      "category": "order_limit",
+      "rationale": "ORDER BY price DESC LIMIT 1."
+    },
+    {
+      "id": "ca_ans_17",
+      "db_id": "company_analytics",
+      "question": "How many employees were hired in 2023?",
+      "expected_hitl": false,
+      "category": "filter_count",
+      "rationale": "strftime('%Y', hire_date) = '2023'."
+    },
+    {
+      "id": "ca_ans_18",
+      "db_id": "company_analytics",
+      "question": "What is the total budget across all departments?",
+      "expected_hitl": false,
+      "category": "simple_aggregate",
+      "rationale": "SUM(budget) on departments."
+    },
+    {
+      "id": "ca_ans_19",
+      "db_id": "company_analytics",
+      "question": "List each category name and the number of products in it.",
+      "expected_hitl": false,
+      "category": "group_by_count",
+      "rationale": "LEFT JOIN categories + products, GROUP BY."
+    },
+    {
+      "id": "ca_ans_20",
+      "db_id": "company_analytics",
+      "question": "Show each employee's first name, last name, and their manager's full name.",
+      "expected_hitl": false,
+      "category": "self_join",
+      "rationale": "Self-join on employees via manager_id."
+    },
+
+    {
+      "id": "ca_amb_01",
+      "db_id": "company_analytics",
+      "question": "Who earns the most?",
+      "expected_hitl": true,
+      "category": "ambiguous_entity",
+      "rationale": "'Earns' could mean salary (employees), or revenue generated (sales). Also unclear if looking for person or role."
+    },
+    {
+      "id": "ca_amb_02",
+      "db_id": "company_analytics",
+      "question": "What is the total?",
+      "expected_hitl": true,
+      "category": "missing_subject",
+      "rationale": "Total of what? Revenue, employees, budget, inventory?"
+    },
+    {
+      "id": "ca_amb_03",
+      "db_id": "company_analytics",
+      "question": "Show the top customers.",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Top by what? Count, revenue, recency, credit limit?"
+    },
+    {
+      "id": "ca_amb_04",
+      "db_id": "company_analytics",
+      "question": "How are we performing?",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "No metric, no time window, no entity."
+    },
+    {
+      "id": "ca_amb_05",
+      "db_id": "company_analytics",
+      "question": "Give me the best product.",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Best by units sold, revenue, margin, rating?"
+    },
+    {
+      "id": "ca_amb_06",
+      "db_id": "company_analytics",
+      "question": "Show recent activity.",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Which activity? Sales, assignments, hires? What counts as recent?"
+    },
+    {
+      "id": "ca_amb_07",
+      "db_id": "company_analytics",
+      "question": "List the big departments.",
+      "expected_hitl": true,
+      "category": "ambiguous_modifier",
+      "rationale": "Big by headcount, budget, number of projects?"
+    },
+    {
+      "id": "ca_amb_08",
+      "db_id": "company_analytics",
+      "question": "How much did we spend last quarter?",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Spend is not a modeled concept — departments have budgets, projects have budgets, employees have salaries, products have cost."
+    },
+    {
+      "id": "ca_amb_09",
+      "db_id": "company_analytics",
+      "question": "Find the manager.",
+      "expected_hitl": true,
+      "category": "ambiguous_entity",
+      "rationale": "Which manager? Any specific manager? Top-of-chain? By department?"
+    },
+    {
+      "id": "ca_amb_10",
+      "db_id": "company_analytics",
+      "question": "What's underperforming?",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "No entity, no metric, no threshold."
+    },
+    {
+      "id": "ca_amb_11",
+      "db_id": "company_analytics",
+      "question": "Show me the most important customer.",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Importance can mean revenue, volume, recency, credit limit."
+    },
+    {
+      "id": "ca_amb_12",
+      "db_id": "company_analytics",
+      "question": "Show employee productivity.",
+      "expected_hitl": true,
+      "category": "metric_undefined",
+      "rationale": "Productivity is not a column; could mean sales count, revenue per employee, hours allocated."
+    },
+    {
+      "id": "ca_amb_13",
+      "db_id": "company_analytics",
+      "question": "What are the trends?",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Trends of what, over what timeframe?"
+    },
+    {
+      "id": "ca_amb_14",
+      "db_id": "company_analytics",
+      "question": "How expensive is the company?",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Total salaries? Total budgets? Total product cost? Market valuation (not in DB)?"
+    },
+    {
+      "id": "ca_amb_15",
+      "db_id": "company_analytics",
+      "question": "Give me the summary.",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Summary of what entity?"
+    },
+    {
+      "id": "ca_amb_16",
+      "db_id": "company_analytics",
+      "question": "Who are the leaders?",
+      "expected_hitl": true,
+      "category": "ambiguous_entity",
+      "rationale": "Managers? Top performers? Highest paid?"
+    },
+    {
+      "id": "ca_amb_17",
+      "db_id": "company_analytics",
+      "question": "Show good customers.",
+      "expected_hitl": true,
+      "category": "ambiguous_modifier",
+      "rationale": "Good by spend, by frequency, by credit limit, by recency?"
+    },
+    {
+      "id": "ca_amb_18",
+      "db_id": "company_analytics",
+      "question": "Which products are low?",
+      "expected_hitl": true,
+      "category": "missing_dimension",
+      "rationale": "Low on inventory, low price, low sales?"
+    },
+    {
+      "id": "ca_amb_19",
+      "db_id": "company_analytics",
+      "question": "How much revenue did sales make?",
+      "expected_hitl": true,
+      "category": "ambiguous_time",
+      "rationale": "No time window. Could be ever, this year, last month. Borderline-ambiguous but likely needs clarification if pipeline is strict."
+    },
+    {
+      "id": "ca_amb_20",
+      "db_id": "company_analytics",
+      "question": "Show me the best people.",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Best at what? Sales? Tenure? Not defined."
+    },
+
+    {
+      "id": "sc_ans_01",
+      "db_id": "sample_company",
+      "question": "List all employees and their hire dates.",
+      "expected_hitl": false,
+      "category": "simple_projection",
+      "rationale": "Single-table SELECT."
+    },
+    {
+      "id": "sc_ans_02",
+      "db_id": "sample_company",
+      "question": "How many projects are active?",
+      "expected_hitl": false,
+      "category": "filter_count",
+      "rationale": "COUNT with status filter."
+    },
+    {
+      "id": "sc_ans_03",
+      "db_id": "sample_company",
+      "question": "For each project, how many employees are assigned to it?",
+      "expected_hitl": false,
+      "category": "group_by_count",
+      "rationale": "GROUP BY project_id on project_assignments."
+    },
+    {
+      "id": "sc_ans_04",
+      "db_id": "sample_company",
+      "question": "Which department has the largest budget?",
+      "expected_hitl": false,
+      "category": "order_limit",
+      "rationale": "ORDER BY budget DESC LIMIT 1."
+    },
+    {
+      "id": "sc_ans_05",
+      "db_id": "sample_company",
+      "question": "List employees hired after 2020-01-01.",
+      "expected_hitl": false,
+      "category": "filter_projection",
+      "rationale": "Date literal filter."
+    },
+    {
+      "id": "sc_ans_06",
+      "db_id": "sample_company",
+      "question": "Count the total number of project assignments.",
+      "expected_hitl": false,
+      "category": "simple_count",
+      "rationale": "COUNT(*) on project_assignments."
+    },
+    {
+      "id": "sc_ans_07",
+      "db_id": "sample_company",
+      "question": "Show each project's name along with its department name.",
+      "expected_hitl": false,
+      "category": "join_projection",
+      "rationale": "JOIN on department_id."
+    },
+
+    {
+      "id": "sc_amb_01",
+      "db_id": "sample_company",
+      "question": "What is the budget?",
+      "expected_hitl": true,
+      "category": "ambiguous_entity",
+      "rationale": "Department budget? Project budget? Which one?"
+    },
+    {
+      "id": "sc_amb_02",
+      "db_id": "sample_company",
+      "question": "Show me the best employees.",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Best by tenure? Project count? Not defined in schema."
+    },
+    {
+      "id": "sc_amb_03",
+      "db_id": "sample_company",
+      "question": "Tell me about engineering.",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Which aspect? Budget, headcount, projects, employees?"
+    },
+    {
+      "id": "sc_amb_04",
+      "db_id": "sample_company",
+      "question": "List the heavy projects.",
+      "expected_hitl": true,
+      "category": "ambiguous_modifier",
+      "rationale": "Heavy by hours allocated, budget, team size?"
+    },
+    {
+      "id": "sc_amb_05",
+      "db_id": "sample_company",
+      "question": "Show project costs.",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Cost could mean project.budget, or SUM(hours_allocated) from assignments."
+    },
+    {
+      "id": "sc_amb_06",
+      "db_id": "sample_company",
+      "question": "Who is busy?",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Busy = most assignments? Most hours? Multiple projects?"
+    },
+    {
+      "id": "sc_amb_07",
+      "db_id": "sample_company",
+      "question": "What's the workload?",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "Per employee? Per project? Per department?"
+    },
+
+    {
+      "id": "sec_ans_01",
+      "db_id": "sec_data_v2",
+      "question": "How many SEC submissions are in the database?",
+      "expected_hitl": false,
+      "category": "simple_count",
+      "rationale": "COUNT(*) on submissions."
+    },
+    {
+      "id": "sec_ans_02",
+      "db_id": "sec_data_v2",
+      "question": "List all distinct form types in the submissions table.",
+      "expected_hitl": false,
+      "category": "simple_distinct",
+      "rationale": "SELECT DISTINCT form."
+    },
+    {
+      "id": "sec_ans_03",
+      "db_id": "sec_data_v2",
+      "question": "How many filings were made in fiscal year 2022?",
+      "expected_hitl": false,
+      "category": "filter_count",
+      "rationale": "COUNT(*) WHERE fy = 2022."
+    },
+    {
+      "id": "sec_ans_04",
+      "db_id": "sec_data_v2",
+      "question": "What are the five most common SIC codes in submissions?",
+      "expected_hitl": false,
+      "category": "group_order_limit",
+      "rationale": "GROUP BY sic ORDER BY count DESC LIMIT 5."
+    },
+    {
+      "id": "sec_ans_05",
+      "db_id": "sec_data_v2",
+      "question": "How many companies filed form 10-K?",
+      "expected_hitl": false,
+      "category": "filter_count_distinct",
+      "rationale": "COUNT(DISTINCT cik) WHERE form='10-K'."
+    },
+    {
+      "id": "sec_ans_06",
+      "db_id": "sec_data_v2",
+      "question": "List all tags where the datatype is monetary.",
+      "expected_hitl": false,
+      "category": "filter_projection",
+      "rationale": "SELECT * FROM tags WHERE datatype='monetary'."
+    },
+    {
+      "id": "sec_ans_07",
+      "db_id": "sec_data_v2",
+      "question": "How many numbers are associated with adsh = '0001193125-22-017125'?",
+      "expected_hitl": false,
+      "category": "filter_count",
+      "rationale": "Exact-match literal."
+    },
+
+    {
+      "id": "sec_amb_01",
+      "db_id": "sec_data_v2",
+      "question": "Show me the biggest filings.",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Biggest by numbers count, by filed date, by company size (not in DB)?"
+    },
+    {
+      "id": "sec_amb_02",
+      "db_id": "sec_data_v2",
+      "question": "Which company has the best numbers?",
+      "expected_hitl": true,
+      "category": "ambiguous_metric",
+      "rationale": "Best by which financial tag? Numbers table has many values per filing."
+    },
+    {
+      "id": "sec_amb_03",
+      "db_id": "sec_data_v2",
+      "question": "Show me significant events.",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "No 'events' or 'significant' column."
+    },
+    {
+      "id": "sec_amb_04",
+      "db_id": "sec_data_v2",
+      "question": "Give me a summary of submissions.",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "What shape of summary? By year, form, sic, country?"
+    },
+    {
+      "id": "sec_amb_05",
+      "db_id": "sec_data_v2",
+      "question": "What are the key metrics?",
+      "expected_hitl": true,
+      "category": "under_specified",
+      "rationale": "'Key' metrics undefined; numbers table has thousands of tags."
+    },
+    {
+      "id": "sec_amb_06",
+      "db_id": "sec_data_v2",
+      "question": "Which tags are important?",
+      "expected_hitl": true,
+      "category": "ambiguous_modifier",
+      "rationale": "Importance undefined in schema."
+    }
+  ]
+}

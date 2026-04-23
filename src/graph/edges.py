@@ -27,36 +27,94 @@ def should_clarify(state: AgentState, config: PipelineConfig) -> Literal["ask_us
     return "generate_draft_sql"
 
 
+def _calibrated_thresholds(config: PipelineConfig) -> dict:
+    cal = getattr(config, "calibration", {}) or {}
+    return cal.get("thresholds", {}) if isinstance(cal, dict) else {}
+
+
 def should_evaluate_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["evaluate_sql", "ask_user"]:
     """
-    After consistency check, decide whether to proceed to MoE evaluation or ask for clarification.
+    After the execution-entropy consistency check, decide whether to proceed
+    to MoE evaluation or ask for clarification.
+
+    Honors:
+      - explicit `consistency_passed = False` (e.g. ambiguous result clusters)
+      - calibrated execution / semantic entropy thresholds
     """
+    if state.get('user_feedback'):
+        return "evaluate_sql"
+
+    thresholds = _calibrated_thresholds(config)
+    exec_h = float(state.get('execution_entropy', 0.0) or 0.0)
+    sem_h = float(state.get('semantic_entropy', 0.0) or 0.0)
+
+    if exec_h > float(thresholds.get('execution_entropy_max', 0.6)):
+        return "ask_user"
+
+    # Only treat semantic entropy as a HITL trigger when execution evidence
+    # is also inconclusive. Skeleton diversity with unanimous execution
+    # results is paraphrase, not ambiguity (e.g. COUNT(*) vs COUNT(id)).
+    result_clusters = state.get('result_clusters') or []
+    exec_conclusive = len(result_clusters) == 1
+    if not exec_conclusive and sem_h > float(thresholds.get('semantic_entropy_max', 1.2)):
+        return "ask_user"
+
     if not state.get('consistency_passed', True):
-        # If variations differ significantly, we might need clarification
-        # But only if we haven't already gotten feedback
-        if not state.get('user_feedback'):
-            return "ask_user"
-    
+        return "ask_user"
+
     return "evaluate_sql"
 
 
 def should_execute_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["execute_sql", "ask_user"]:
     """
-    After Mixture of Experts evaluation, check confidence and approval before execution.
-    
-    Logic:
-    - If confidence falls below the config threshold (from semantic phase or MoE penalties), and user hasn't intervened -> ask user
-    - If experts explicitly did NOT approve -> ask user
-    - Otherwise -> execute_sql
+    Quality gate: combines all uncertainty signals against calibrated thresholds.
+
+    Accepts only if EVERY criterion holds:
+      - experts approved
+      - composite_confidence >= calibrated minimum
+      - sequence log-prob (if available) >= calibrated minimum
+      - legacy confidence_score >= config.confidence_threshold (back-compat)
+
+    Otherwise routes to HITL with a precise list of failing criteria.
+    Mirrors the "release stage quality gate" from DeepEye-SQL (arXiv 2510.17586).
     """
-    # Force pause if explicitly denied, regardless of raw score remaining
-    if not state.get('expert_approved', True) and not state.get('user_feedback'):
+    if state.get('user_feedback'):
+        return "execute_sql"
+
+    thresholds = _calibrated_thresholds(config)
+    reasons = []
+
+    if not state.get('expert_approved', True):
+        reasons.append("Mixture-of-Experts did not approve the SQL.")
+
+    composite = float(state.get('composite_confidence', state.get('confidence_score', 1.0)))
+    composite_min = float(thresholds.get('composite_confidence_min', 0.65))
+    if composite < composite_min:
+        reasons.append(
+            f"Composite confidence {composite:.2f} < calibrated minimum {composite_min:.2f}."
+        )
+
+    seq_lp = state.get('sequence_logprob')
+    seq_lp_min = float(thresholds.get('sequence_logprob_min', -10.0))
+    if seq_lp is not None and float(seq_lp) < seq_lp_min:
+        reasons.append(
+            f"Avg token log-prob {float(seq_lp):.2f} < minimum {seq_lp_min:.2f}."
+        )
+
+    if state.get('confidence_score', 1.0) < config.confidence_threshold:
+        reasons.append(
+            f"Self-reported confidence {state.get('confidence_score', 1.0):.2f} "
+            f"< threshold {config.confidence_threshold:.2f}."
+        )
+
+    if reasons:
+        # Stash reasons for the HITL message + UI surfacing.
+        state['quality_gate_passed'] = False
+        state['quality_gate_reasons'] = reasons
         return "ask_user"
-    
-    # Check updated overall confidence threshold taking MoE penalties into account
-    if state.get('confidence_score', 1.0) < config.confidence_threshold and not state.get('user_feedback'):
-        return "ask_user"
-    
+
+    state['quality_gate_passed'] = True
+    state['quality_gate_reasons'] = []
     return "execute_sql"
 
 

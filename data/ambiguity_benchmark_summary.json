@@ -1,0 +1,134 @@
+{
+  "overall": {
+    "n": 9,
+    "tp": 5,
+    "fp": 4,
+    "tn": 0,
+    "fn": 0,
+    "accuracy": 0.5555555555555556,
+    "precision_hitl": 0.5555555555555556,
+    "recall_hitl": 1.0,
+    "f1_hitl": 0.7142857142857143,
+    "specificity_answerable": 0.0
+  },
+  "by_database": {
+    "company_analytics": {
+      "n": 9,
+      "tp": 5,
+      "fp": 4,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 0.5555555555555556,
+      "precision_hitl": 0.5555555555555556,
+      "recall_hitl": 1.0,
+      "f1_hitl": 0.7142857142857143,
+      "specificity_answerable": 0.0
+    },
+    "sec_data_v2": {
+      "n": 0,
+      "tp": 0,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 0.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 0.0
+    }
+  },
+  "by_category": {
+    "group_by_count": {
+      "n": 1,
+      "tp": 0,
+      "fp": 1,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 0.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 0.0
+    },
+    "filter_count": {
+      "n": 1,
+      "tp": 0,
+      "fp": 1,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 0.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 0.0
+    },
+    "under_specified": {
+      "n": 3,
+      "tp": 3,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 0.0
+    },
+    "simple_count": {
+      "n": 1,
+      "tp": 0,
+      "fp": 1,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 0.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 0.0
+    },
+    "missing_subject": {
+      "n": 1,
+      "tp": 1,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 0.0
+    },
+    "simple_projection": {
+      "n": 1,
+      "tp": 0,
+      "fp": 1,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 0.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 0.0
+    },
+    "ambiguous_entity": {
+      "n": 1,
+      "tp": 1,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 0.0
+    }
+  },
+  "errors": [
+    {
+      "id": "sec_ans_07",
+      "error": "TimeoutError: timed out"
+    }
+  ],
+  "n_total": 10,
+  "n_errors": 1
+}

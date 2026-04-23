@@ -193,16 +193,23 @@ class TextToSQLGraph:
         # Consistency check
         state.update(consistency_check_node(state, self.config, self.llm_client))
         
-        # Check consistency
+        # Check consistency (now uses execution + semantic entropy)
         if not state.get('consistency_passed') and not state.get('user_feedback'):
             state.update(finalize_hitl_node(state, self.config))
             return dict(state)
-            
+
         # Evaluate SQL (MoE)
         state.update(evaluate_sql_node(state, self.config, self.llm_client))
-        
-        # Check MoE Approval and Pipeline final confidence score
-        if state.get('confidence_score', 1.0) < self.config.confidence_threshold and not state.get('user_feedback'):
+
+        # Calibrated quality gate: use composite_confidence when available.
+        gate_value = state.get('composite_confidence', state.get('confidence_score', 1.0))
+        cal = getattr(self.config, "calibration", {}) or {}
+        gate_min = float(
+            (cal.get("thresholds", {}) if isinstance(cal, dict) else {}).get(
+                "composite_confidence_min", self.config.confidence_threshold
+            )
+        )
+        if gate_value < gate_min and not state.get('user_feedback'):
             state.update(finalize_hitl_node(state, self.config))
             return dict(state)
         

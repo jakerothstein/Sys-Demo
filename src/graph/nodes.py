@@ -3,11 +3,22 @@ Graph Node Functions for LangGraph Pipeline.
 Each node is a function that takes AgentState and returns a partial state update.
 LLM-First Design: All logic uses LLM prompts rather than regex/keyword matching.
 Structured Outputs: Uses response_schema for guaranteed valid JSON from LLMs.
+
+Uncertainty model (Tier-1 research integration):
+  - Execution entropy: Shannon entropy over canonicalized result clusters.
+    See "Query and Conquer" (arXiv 2503.24364) and RTS++ (EDBT 2026).
+  - Semantic entropy:  Shannon entropy over SQL skeleton clusters.
+    Proxy for the bidirectional-entailment clustering from Farquhar et al.,
+    "Detecting hallucinations in LLMs using semantic entropy", Nature 2024.
+  - Composite confidence -> calibrated quality gate (data/calibration.json),
+    inspired by "Conformal abstention" (arXiv 2405.01563).
 """
+import hashlib
 import json
+import math
 import os
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 
 from .state import AgentState, PipelineConfig
 from src.data.vector_store import get_schema_store
@@ -559,7 +570,7 @@ PREVIOUS ERROR (Self-Correction Required):
 Learn from this error and generate corrected SQL that avoids this issue.
 """
 
-    prompt = f"""You are an expert SQL developer. Generate {num_variations} different valid SQL queries for the following question.
+    prompt = f"""You are an expert SQL developer. Generate {num_variations} candidate SQL queries for the following question.
 
 DATABASE SCHEMA:
 {schema_context}
@@ -577,13 +588,18 @@ Return a JSON object with this structure:
     "reasoning": "<brief explanation of your approach>"
 }}
 
-Guidelines:
-- Generate exactly {num_variations} different but semantically equivalent SQL queries
-- All queries should produce the same result but may use different syntax or approaches
-- Use proper table and column names from the schema
-- Handle JOINs appropriately using foreign key relationships
-- Use appropriate aggregations (COUNT, SUM, AVG, etc.) based on the query intent
-- Include appropriate LIMIT clauses for open-ended queries
+Guidelines for the candidate set:
+- The first query should be your single best interpretation of the question.
+- Subsequent queries should explore PLAUSIBLE ALTERNATIVE INTERPRETATIONS of any
+  ambiguity in the question (different column choices, different join paths,
+  different aggregation level). They are NOT required to be semantically
+  equivalent. We use disagreement between them as an ambiguity signal.
+- If the question is genuinely unambiguous, return slight syntactic variants
+  of the same query so the candidate set is consistent.
+- Use proper table and column names from the schema.
+- Handle JOINs appropriately using foreign key relationships.
+- Use appropriate aggregations (COUNT, SUM, AVG, etc.) based on the query intent.
+- Include appropriate LIMIT clauses for open-ended queries.
 
 Return ONLY the JSON object, no other text."""
 
@@ -623,83 +639,381 @@ Return ONLY the JSON object, no other text."""
                 'token_confidence_map': token_data or []
             }
         
-        # Last resort: return placeholder
+        # Last resort: parsing produced nothing usable.
         return {
             'generated_sqls': ["SELECT 1;"],
             'selected_sql': "SELECT 1;",
-            'token_confidence_map': token_data or [] if 'token_data' in locals() else []
+            'token_confidence_map': token_data or [] if 'token_data' in locals() else [],
+            'error_trace': "SQL generator returned no parseable SQL; emitting placeholder.",
         }
-        
+
     except Exception as e:
+        # Most commonly: Gemini 429 quota exhaustion that survived backoff.
+        # Stamp error_trace so the quality gate sees this as a failed state
+        # rather than incorrectly emitting a HITL with bogus high confidence.
         print(f"SQL generation error: {e}")
         return {
             'generated_sqls': ["SELECT 1;"],
-            'selected_sql': "SELECT 1;"
+            'selected_sql': "SELECT 1;",
+            'error_trace': f"sql_generation_error: {type(e).__name__}: {str(e)[:200]}",
         }
+
+
+# ==================== UNCERTAINTY HELPERS ====================
+
+def _shannon_entropy_bits(counts: List[int]) -> float:
+    """Shannon entropy in bits over a list of cluster counts."""
+    total = sum(counts)
+    if total <= 0:
+        return 0.0
+    h = 0.0
+    for c in counts:
+        if c <= 0:
+            continue
+        p = c / total
+        h -= p * math.log2(p)
+    return h
+
+
+def _normalize_skeleton(sql: str) -> str:
+    """
+    Reduce a SQL string to a structural skeleton for clustering.
+    Collapses whitespace, uppercases keywords, replaces literals with '?'.
+    Two SQLs with the same skeleton are taken as the same 'meaning class'.
+    """
+    if not sql:
+        return ""
+    s = sql.strip().rstrip(";")
+    # Strip line comments and block comments
+    s = re.sub(r"--[^\n]*", " ", s)
+    s = re.sub(r"/\*.*?\*/", " ", s, flags=re.DOTALL)
+    # Strip string literals and numbers
+    s = re.sub(r"'[^']*'", "?", s)
+    s = re.sub(r'"[^"]*"', "?", s)
+    s = re.sub(r"\b\d+(?:\.\d+)?\b", "?", s)
+    # Normalize whitespace
+    s = re.sub(r"\s+", " ", s).strip().upper()
+    return s
+
+
+def _canonicalize_execution_result(result: Optional[Dict[str, Any]]) -> Optional[str]:
+    """
+    Produce a canonical hash of an execution result so that semantically
+    equivalent outputs map to the same cluster id.
+
+    Hashing is COLUMN-NAME-AGNOSTIC: two queries that return the same VALUES
+    cluster together even if the labels differ (e.g. COUNT(*) vs COUNT(id)
+    both returning 60). Rows are also order-independent. We keep the row
+    *shape* (column count) as part of the hash so [(1,2)] never collapses
+    onto [(1,)].
+
+    Returns None for failed/empty executions so they are not clustered together.
+    """
+    if not result or not result.get("success"):
+        return None
+    cols = list(result.get("columns", []) or [])
+    data = list(result.get("data", []) or [])
+
+    rows: List[Tuple[str, ...]] = []
+    for row in data:
+        if isinstance(row, dict):
+            # Use the column order returned by the executor (may be empty).
+            if cols:
+                values = [row.get(c) for c in cols]
+            else:
+                values = list(row.values())
+        else:
+            try:
+                values = list(row)
+            except TypeError:
+                values = [row]
+        # Sort cell values within the row -> tolerate column-order differences.
+        rows.append(tuple(sorted(repr(v) for v in values)))
+    rows.sort()
+    arity = len(rows[0]) if rows else 0
+    payload = json.dumps({"arity": arity, "rows": rows}, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _logprob_features(token_map: List[Dict[str, Any]]) -> Dict[str, Optional[float]]:
+    """
+    Length-normalized sequence log-prob and minimum token confidence.
+    Higher avg_logprob is better (closer to 0 = more confident).
+    """
+    if not token_map:
+        return {"sequence_logprob": None, "min_token_confidence": None}
+    confs: List[float] = []
+    for t in token_map:
+        c = t.get("confidence")
+        if isinstance(c, (int, float)) and 0.0 < c <= 1.0:
+            confs.append(float(c))
+    if not confs:
+        return {"sequence_logprob": None, "min_token_confidence": None}
+    log_confs = [math.log(c) for c in confs]
+    avg_logprob = sum(log_confs) / len(log_confs)
+    return {
+        "sequence_logprob": avg_logprob,
+        "min_token_confidence": min(confs),
+    }
+
+
+def _normalize_entropy(entropy_bits: float, n_candidates: int) -> float:
+    """Normalize entropy to [0, 1] given the maximum possible entropy log2(n)."""
+    if n_candidates <= 1:
+        return 0.0
+    max_h = math.log2(n_candidates)
+    if max_h <= 0:
+        return 0.0
+    return max(0.0, min(1.0, entropy_bits / max_h))
+
+
+def _normalize_logprob(avg_logprob: Optional[float]) -> float:
+    """
+    Map an average log-prob to roughly [0, 1].
+    avg_logprob = 0  (perfectly confident)  -> 1.0
+    avg_logprob = -3 (low confidence ~5%)   -> 0.0
+    """
+    if avg_logprob is None:
+        return 0.5  # neutral when unavailable
+    score = 1.0 + (avg_logprob / 3.0)
+    return max(0.0, min(1.0, score))
+
+
+def _compute_composite_confidence(
+    self_reported: float,
+    execution_entropy: float,
+    semantic_entropy: float,
+    n_candidates: int,
+    avg_logprob: Optional[float],
+    weights: Dict[str, float],
+) -> float:
+    """Weighted combination of all uncertainty signals -> [0, 1]."""
+    exec_consistency = 1.0 - _normalize_entropy(execution_entropy, n_candidates)
+    sem_consistency = 1.0 - _normalize_entropy(semantic_entropy, n_candidates)
+    logprob_score = _normalize_logprob(avg_logprob)
+    score = (
+        weights.get("self_reported", 0.0) * float(self_reported)
+        + weights.get("execution_consistency", 0.0) * exec_consistency
+        + weights.get("semantic_consistency", 0.0) * sem_consistency
+        + weights.get("logprob", 0.0) * logprob_score
+    )
+    return max(0.0, min(1.0, score))
 
 
 def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Dict[str, Any]:
     """
-    Check if the generated SQL variations are semantically consistent.
-    Uses LLM-based semantic comparison for accurate equivalence checking.
-    Falls back to structural heuristics if LLM is unavailable.
+    Execution-aware consistency check (replaces the old LLM-as-judge approach).
+
+    Steps:
+      1. Execute every generated SQL in the sandbox.
+      2. Cluster successful executions by canonicalized result -> EXECUTION ENTROPY.
+      3. Cluster all SQLs by structural skeleton -> SEMANTIC ENTROPY.
+      4. Promote the SQL from the largest execution cluster to `selected_sql`
+         (majority-vote winner) and CACHE its execution result so the
+         downstream `execute_sql_node` does not have to re-run it.
+      5. Compute a composite confidence using calibrated weights.
+
+    This addresses the failure mode where the LLM says "these queries are
+    equivalent" but they actually return different rows on the live database.
     """
-    sqls = state.get('generated_sqls', [])
-    
-    if len(sqls) < 2:
+    sqls: List[str] = list(state.get('generated_sqls', []) or [])
+    selected_sql = state.get('selected_sql', sqls[0] if sqls else "")
+    self_reported = float(state.get('confidence_score', 0.5))
+    token_map = state.get('token_confidence_map', []) or []
+    calibration = (config.calibration if hasattr(config, "calibration") else None) or {}
+    weights = calibration.get("weights", {}) if isinstance(calibration, dict) else {}
+
+    logprob_feats = _logprob_features(token_map)
+
+    if not sqls:
         return {
-            'consistency_passed': True,
-            'consistency_analysis': "Only one SQL generated, skipping consistency check."
+            'consistency_passed': False,
+            'consistency_analysis': "No SQL candidates were generated.",
+            'execution_entropy': 0.0,
+            'semantic_entropy': 0.0,
+            'result_clusters': [],
+            'skeleton_clusters': [],
+            'sql_executions': [],
+            'sequence_logprob': logprob_feats['sequence_logprob'],
+            'min_token_confidence': logprob_feats['min_token_confidence'],
+            'composite_confidence': 0.0,
         }
-    
-    # Use LLM for semantic comparison if available
-    if llm_client:
+
+    # Placeholder detection: generate_sql_node emits "SELECT 1;" when the LLM
+    # call failed (most often a Gemini 429). Without this guard the executor
+    # happily runs SELECT 1; three times, gets perfect agreement, and produces
+    # a high composite_confidence on a totally meaningless answer.
+    placeholder_sqls = {"SELECT 1;", "SELECT 1", "select 1;", "select 1"}
+    if all(s.strip() in placeholder_sqls for s in sqls):
+        return {
+            'consistency_passed': False,
+            'consistency_analysis': "SQL generation failed (placeholder emitted). "
+                                    "This usually indicates an upstream LLM error.",
+            'execution_entropy': 0.0,
+            'semantic_entropy': 0.0,
+            'result_clusters': [],
+            'skeleton_clusters': [],
+            'sql_executions': [],
+            'sequence_logprob': logprob_feats['sequence_logprob'],
+            'min_token_confidence': logprob_feats['min_token_confidence'],
+            'composite_confidence': 0.0,
+            'selected_sql': sqls[0],
+        }
+
+    # ---- 1. Execute every variation in the sandbox -----------------------
+    try:
+        from src.sandbox.executor import execute_sql as _execute_sql
+    except Exception as e:
+        _execute_sql = None
+        print(f"Sandbox unavailable for execution-entropy check: {e}")
+
+    executions: List[Dict[str, Any]] = []
+    for idx, sql in enumerate(sqls):
+        entry: Dict[str, Any] = {
+            "index": idx,
+            "sql": sql,
+            "skeleton": _normalize_skeleton(sql),
+            "success": False,
+            "error": None,
+            "row_count": 0,
+            "result_hash": None,
+            "result": None,
+        }
+        if _execute_sql is None or not sql.strip():
+            executions.append(entry)
+            continue
         try:
-            prompt = f"""Compare these SQL queries and determine if they are semantically equivalent 
-(would return the same results on the same data):
-
-SQL 1: {sqls[0]}
-SQL 2: {sqls[1]}
-{f"SQL 3: {sqls[2]}" if len(sqls) > 2 else ""}
-
-Consider:
-- Do they query the same tables?
-- Do they apply equivalent filters?
-- Do they return equivalent columns/aggregations?
-- Would they produce the same result set?
-
-Return your analysis as JSON."""
-
-            response, _ = llm_client.generate(prompt, response_schema=CONSISTENCY_CHECK_SCHEMA)
-            
-            try:
-                result = json.loads(response)
-            except json.JSONDecodeError:
-                result = _parse_json_from_response(response)
-            
-            if result and 'are_equivalent' in result:
-                are_equivalent = result.get('are_equivalent', True)
-                confidence = result.get('confidence', 0.5)
-                differences = result.get('differences', [])
-                recommendation = result.get('recommendation', 'proceed')
-                
-                consistency_passed = are_equivalent and confidence > 0.7
-                
-                if consistency_passed:
-                    analysis = f"LLM semantic analysis: queries are equivalent (confidence: {confidence:.0%})"
-                else:
-                    diff_str = "; ".join(differences) if differences else "semantic differences detected"
-                    analysis = f"LLM semantic analysis: {diff_str}. Recommendation: {recommendation}"
-                
-                return {
-                    'consistency_passed': consistency_passed,
-                    'consistency_analysis': analysis
-                }
+            res = _execute_sql(sql)
         except Exception as e:
-            print(f"LLM consistency check failed, using structural fallback: {e}")
-    
-    # Fallback: structural heuristic check
-    return _structural_consistency_check(sqls)
+            res = {"success": False, "error": str(e)}
+        if res and res.get("success"):
+            entry["success"] = True
+            entry["row_count"] = res.get("row_count", len(res.get("data", []) or []))
+            entry["result_hash"] = _canonicalize_execution_result(res)
+            entry["result"] = res
+        else:
+            entry["error"] = (res or {}).get("error", "unknown error")
+        executions.append(entry)
+
+    # ---- 2. Cluster by canonical execution result ------------------------
+    result_buckets: Dict[str, List[int]] = {}
+    for e in executions:
+        h = e["result_hash"]
+        if h is None:
+            continue
+        result_buckets.setdefault(h, []).append(e["index"])
+
+    result_clusters: List[Dict[str, Any]] = []
+    for h, idxs in result_buckets.items():
+        sample = executions[idxs[0]]
+        sample_rows = (sample["result"] or {}).get("data", [])[:3]
+        result_clusters.append({
+            "hash": h,
+            "size": len(idxs),
+            "indices": idxs,
+            "sample_sql": sample["sql"],
+            "sample_rows": sample_rows,
+            "row_count": sample["row_count"],
+        })
+    result_clusters.sort(key=lambda c: c["size"], reverse=True)
+
+    exec_entropy = _shannon_entropy_bits([c["size"] for c in result_clusters])
+
+    # ---- 3. Cluster by structural skeleton -------------------------------
+    skeleton_buckets: Dict[str, List[int]] = {}
+    for e in executions:
+        skeleton_buckets.setdefault(e["skeleton"], []).append(e["index"])
+    skeleton_clusters = [
+        {"skeleton": s, "size": len(idxs), "indices": idxs,
+         "sqls": [executions[i]["sql"] for i in idxs]}
+        for s, idxs in skeleton_buckets.items()
+    ]
+    skeleton_clusters.sort(key=lambda c: c["size"], reverse=True)
+
+    semantic_entropy = _shannon_entropy_bits([c["size"] for c in skeleton_clusters])
+
+    # ---- 4. Pick winner via execution-cluster majority vote --------------
+    cached_execution: Optional[Dict[str, Any]] = None
+    if result_clusters:
+        winner_idx = result_clusters[0]["indices"][0]
+        selected_sql = executions[winner_idx]["sql"]
+        cached_execution = executions[winner_idx]["result"]
+    elif skeleton_clusters:
+        winner_idx = skeleton_clusters[0]["indices"][0]
+        selected_sql = executions[winner_idx]["sql"]
+
+    # ---- 5. Composite confidence + acceptance criterion ------------------
+    composite = _compute_composite_confidence(
+        self_reported=self_reported,
+        execution_entropy=exec_entropy,
+        semantic_entropy=semantic_entropy,
+        n_candidates=len(sqls),
+        avg_logprob=logprob_feats["sequence_logprob"],
+        weights=weights,
+    )
+
+    thresholds = calibration.get("thresholds", {}) if isinstance(calibration, dict) else {}
+    exec_thresh = float(thresholds.get("execution_entropy_max", 0.6))
+    sem_thresh = float(thresholds.get("semantic_entropy_max", 1.2))
+
+    n_success = sum(1 for e in executions if e["success"])
+    # Execution-based agreement is a much stronger signal than skeleton-based
+    # diversity. Skeleton diversity *without* execution disagreement is just
+    # paraphrase ("COUNT(*)" vs "COUNT(id)" returning the same number) and
+    # must not be allowed to reject a correct answer. Only fall back to the
+    # semantic-entropy cap when execution evidence is inconclusive (multiple
+    # disagreeing result clusters, or fewer than half the candidates ran).
+    exec_conclusive = (
+        len(result_clusters) == 1
+        and n_success >= max(2, (len(sqls) + 1) // 2)
+    )
+    consistency_passed = (
+        n_success > 0
+        and exec_entropy <= exec_thresh
+        and (exec_conclusive or semantic_entropy <= sem_thresh)
+    )
+
+    if not result_clusters:
+        analysis = (
+            f"All {len(sqls)} candidate(s) failed to execute -> consistency cannot be verified."
+        )
+    elif len(result_clusters) == 1:
+        analysis = (
+            f"All {n_success}/{len(sqls)} successful candidates returned the same result "
+            f"(execution entropy = 0 bits)."
+        )
+    else:
+        top = result_clusters[0]["size"]
+        analysis = (
+            f"Found {len(result_clusters)} distinct result clusters "
+            f"(execution entropy = {exec_entropy:.2f} bits, top cluster has {top}/{n_success} votes). "
+            f"This indicates semantic ambiguity in the question."
+        )
+
+    update: Dict[str, Any] = {
+        'consistency_passed': consistency_passed,
+        'consistency_analysis': analysis,
+        'execution_entropy': exec_entropy,
+        'semantic_entropy': semantic_entropy,
+        'result_clusters': result_clusters,
+        'skeleton_clusters': skeleton_clusters,
+        'sql_executions': [
+            {k: v for k, v in e.items() if k != "result"}  # drop heavy payload
+            for e in executions
+        ],
+        'sequence_logprob': logprob_feats['sequence_logprob'],
+        'min_token_confidence': logprob_feats['min_token_confidence'],
+        'composite_confidence': composite,
+        'selected_sql': selected_sql,
+    }
+
+    # Cache the chosen SQL's execution so execute_sql_node can reuse it
+    if cached_execution is not None:
+        update['execution_result'] = cached_execution
+        update['execution_success'] = True
+        update['error_trace'] = None
+
+    return update
 
 
 def _structural_consistency_check(sqls: List[str]) -> Dict[str, Any]:
@@ -900,16 +1214,29 @@ Return a JSON object with:
 def execute_sql_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any]:
     """
     Execute the selected SQL in the sandbox.
+    Reuses the cached execution from `consistency_check_node` when the
+    selected SQL was already run there (saves ~one DB round-trip per query).
     """
     sql = state.get('selected_sql', '')
-    
+
     if not sql:
         return {
             'execution_success': False,
             'error_trace': "No SQL to execute",
             'execution_result': None
         }
-    
+
+    # Reuse cached execution from execution-entropy phase if it matches.
+    cached = state.get('execution_result')
+    if cached and state.get('execution_success'):
+        for entry in state.get('sql_executions', []) or []:
+            if entry.get('sql') == sql and entry.get('success'):
+                return {
+                    'execution_success': True,
+                    'execution_result': cached,
+                    'error_trace': None,
+                }
+
     try:
         from src.sandbox.executor import execute_sql
         result = execute_sql(sql)
@@ -987,10 +1314,43 @@ def finalize_success_node(state: AgentState, config: PipelineConfig) -> Dict[str
 
 
 def finalize_hitl_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any]:
-    """Finalize the state when HITL is needed."""
+    """Finalize the state when HITL is needed.
+
+    Builds a human-readable explanation that combines:
+      - the disambiguator's clarification request (if any)
+      - the quality-gate failure reasons (if any)
+      - up to 3 alternative result-cluster summaries so the user can pick
+        which interpretation they meant (LogicalBeam-style top-k disambiguation).
+    """
+    parts: List[str] = []
+    base = state.get('clarification_message', '').strip()
+    if base:
+        parts.append(base)
+
+    reasons = state.get('quality_gate_reasons', []) or []
+    if reasons:
+        parts.append("Why I'm pausing:")
+        for r in reasons:
+            parts.append(f"  - {r}")
+
+    clusters = state.get('result_clusters', []) or []
+    if len(clusters) > 1:
+        parts.append("")
+        parts.append("I found multiple possible interpretations of your question:")
+        for i, c in enumerate(clusters[:3], start=1):
+            sample_rows = c.get('sample_rows', [])
+            parts.append(
+                f"  Option {i}: {c.get('row_count', 0)} rows "
+                f"({c.get('size', 0)}/{len(state.get('generated_sqls', []))} candidates agree)."
+            )
+            if sample_rows:
+                parts.append(f"    sample: {sample_rows[0]}")
+        parts.append("Please clarify which interpretation you intended.")
+
+    msg = "\n".join(parts) if parts else "Clarification needed."
     return {
         'final_status': 'paused_hitl',
-        'final_message': state.get('clarification_message', 'Clarification needed.')
+        'final_message': msg,
     }
 
 

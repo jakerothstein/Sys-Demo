@@ -204,7 +204,7 @@ def test_composite_confidence_monotonic() -> None:
 # 2. consistency_check_node end-to-end (real execution against the sandbox DB)
 # ---------------------------------------------------------------------------
 def _mk_config() -> PipelineConfig:
-    return PipelineConfig(confidence_threshold=0.7, num_sql_variations=3)
+    return PipelineConfig(confidence_threshold=0.55, num_sql_variations=3)
 
 
 def test_consistency_unanimous() -> None:

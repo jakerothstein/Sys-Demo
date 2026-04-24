@@ -1,0 +1,28 @@
+{
+  "bundle_created_utc": "2026-04-24T15:03:40.228845Z",
+  "git_commit": "eaf3a30eddcb47f13c5fc78af1c70517520b6eef",
+  "contents": [
+    "README.json",
+    "ambiguity_benchmark_results.jsonl",
+    "ambiguity_benchmark_summary.json",
+    "ambiqt_summary.json",
+    "benchmark_plots/00_ambiguity_overall_metrics.png",
+    "benchmark_plots/00b_ambiguity_confusion_matrix.png",
+    "benchmark_plots/01_ambiguity_by_database.png",
+    "benchmark_plots/02_ambiqt_caught_vs_missed.png",
+    "benchmark_plots/03_ambiqt_recall_by_subtype.png",
+    "benchmark_plots/04_ambiqt_recall_by_db.png",
+    "benchmark_plots/05_benchmark_comparison.png",
+    "benchmark_runs/ambiguity_2026-04-24T140803Z/ARTIFACTS.txt",
+    "benchmark_runs/ambiguity_2026-04-24T140803Z/calibration.json",
+    "benchmark_runs/ambiguity_2026-04-24T140803Z/manifest.json",
+    "benchmark_runs/ambiguity_2026-04-24T140803Z/results.jsonl",
+    "benchmark_runs/ambiguity_2026-04-24T140803Z/summary.json",
+    "benchmark_runs/ambiqt_2026-04-24T145816Z/ARTIFACTS.txt",
+    "benchmark_runs/ambiqt_2026-04-24T145816Z/calibration.json",
+    "benchmark_runs/ambiqt_2026-04-24T145816Z/manifest.json",
+    "benchmark_runs/ambiqt_2026-04-24T145816Z/results.jsonl",
+    "benchmark_runs/ambiqt_2026-04-24T145816Z/summary.json",
+    "calibration.json"
+  ]
+}

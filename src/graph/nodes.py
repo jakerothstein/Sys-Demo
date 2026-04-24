@@ -374,9 +374,10 @@ Return ONLY the JSON object, no other text."""
         
         confidence = float(parsed.get('confidence', 0.5))
         
-        # Override is_ambiguous if confidence is very high (>= 0.9)
-        # This prevents unnecessary HITL triggers when the LLM is confident
-        if confidence >= 0.9:
+        clear_bar = float(getattr(config, "disambiguation_clear_confidence", 0.85))
+        # High reported clarity skips clarification HITL (usability over strict
+        # adherence to is_ambiguous when the model hedges).
+        if confidence >= clear_bar:
             is_ambiguous = False
             ambiguity_reasons = []
         else:

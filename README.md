@@ -196,7 +196,7 @@ The pipeline can be configured through `PipelineConfig`:
 from src.graph.pipeline import PipelineConfig
 
 config = PipelineConfig(
-    confidence_threshold=0.7,  # Below this triggers HITL
+    confidence_threshold=0.55,  # Disambiguation back-stop; see calibration.json for quality gate
     max_retries=3,             # Self-correction attempts
     llm_provider="auto",       # auto, openai, anthropic, gemini
     use_few_shot=True,         # Enable RAG examples

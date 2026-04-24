@@ -346,9 +346,10 @@ class OllamaClient(BaseLLMClient):
         models = self.list_models()
         if not models:
             return False
-        # Ollama tags include `:tag`. Accept exact or tag-prefix match.
-        return any(m == self.model or m.startswith(self.model.split(":")[0] + ":")
-                   for m in models)
+        # Require an exact tag match. Different sizes (e.g. :7b vs :14b) are
+        # different models to Ollama; treating them as interchangeable caused
+        # a false "available" pre-check and then HTTP 404 on /api/chat.
+        return self.model in models
 
     def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None,
                  **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
@@ -413,8 +414,15 @@ class OllamaClient(BaseLLMClient):
                     payload.pop("format", None)
                 resp = self._http_post("/api/chat", payload)
             else:
+                hint = ""
+                if e.code == 404 and "not found" in err_body.lower():
+                    avail = ", ".join(self.list_models()) or "<none>"
+                    hint = (
+                        f"\nIf the model name is wrong, set OLLAMA_MODEL to a "
+                        f"tag from `ollama list` (available: {avail})."
+                    )
                 raise RuntimeError(
-                    f"Ollama HTTP {e.code} from /api/chat: {err_body[:300]}"
+                    f"Ollama HTTP {e.code} from /api/chat: {err_body[:300]}{hint}"
                 ) from e
 
         # Confirm schema support on first success.

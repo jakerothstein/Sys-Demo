@@ -111,7 +111,8 @@ class BenchmarkRunner:
         
         # Initialize pipeline
         self.config = PipelineConfig(
-            confidence_threshold=0.7,
+            confidence_threshold=0.55,
+            disambiguation_clear_confidence=0.85,
             max_retries=2,
             num_sql_variations=3,
             llm_provider=os.environ.get("LLM_PROVIDER", "auto")

@@ -18,7 +18,7 @@ def run_tests():
     
     # Create pipeline with mock LLM for testing
     config = PipelineConfig(
-        confidence_threshold=0.7,
+        confidence_threshold=0.55,
         max_retries=3,
         num_sql_variations=3,
         llm_provider="mock"

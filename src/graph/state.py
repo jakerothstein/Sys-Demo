@@ -92,24 +92,24 @@ DEFAULT_CALIBRATION: Dict[str, Any] = {
         # Maximum allowed Shannon entropy (bits) over execution-result clusters.
         # 0.0  = all SQLs returned identical results (high confidence).
         # 1.0  = a 50/50 split between two distinct interpretations.
-        "execution_entropy_max": 0.6,
+        "execution_entropy_max": 0.85,
         # Maximum allowed Shannon entropy over SQL skeleton clusters.
         # Captures structural disagreement that doesn't show up in results
         # (e.g. one variation crashes, others succeed).
-        "semantic_entropy_max": 1.2,
+        "semantic_entropy_max": 1.55,
         # Minimum composite confidence to accept without HITL.
-        "composite_confidence_min": 0.65,
+        "composite_confidence_min": 0.48,
         # Minimum length-normalized average sequence log-prob (bits).
         # Tokens with very low local probability are a hallucination signal.
         # -10 effectively disables it; tighten after calibration.
         "sequence_logprob_min": -10.0,
         # Unanimous execution + high structural diversity: ask HITL when
-        # candidates reference >=2 distinct tables OR >=4 distinct identifiers
-        # (see schema_ref_diversity.detect_unanimous_structural_ambiguity).
-        "structural_divergence_semantic_min": 1.45,
+        # candidates reference enough distinct schema refs (see
+        # schema_ref_diversity.detect_unanimous_structural_ambiguity).
+        "structural_divergence_semantic_min": 1.62,
         "structural_divergence_min_skeletons": 3,
-        "structural_divergence_min_distinct_tables": 2,
-        "structural_divergence_min_distinct_identifiers": 4,
+        "structural_divergence_min_distinct_tables": 3,
+        "structural_divergence_min_distinct_identifiers": 5,
         "structural_divergence_exec_epsilon": 0.01,
     },
     "weights": {
@@ -148,7 +148,12 @@ def load_calibration(path: Optional[str] = None) -> Dict[str, Any]:
 @dataclass
 class PipelineConfig:
     """Configuration for the pipeline."""
-    confidence_threshold: float = 0.8
+    # Below this, disambiguation treats the query as unclear when the model
+    # omits an explicit is_ambiguous flag (back-compat with older JSON).
+    confidence_threshold: float = 0.55
+    # If the disambiguator reports confidence >= this, skip clarification HITL
+    # even when is_ambiguous was true (favors fluent use over caution).
+    disambiguation_clear_confidence: float = 0.85
     max_retries: int = 3
     num_sql_variations: int = 3
     consistency_similarity_threshold: float = 0.9

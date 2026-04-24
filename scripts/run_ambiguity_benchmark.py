@@ -129,7 +129,7 @@ def _summarize(q: Dict[str, Any], result: Dict[str, Any],
 class LocalRunner:
     """Runs the pipeline in-process (requires GOOGLE_API_KEY / ANTHROPIC_API_KEY)."""
 
-    def __init__(self, confidence_threshold: float = 0.7,
+    def __init__(self, confidence_threshold: float = 0.55,
                  num_sql_variations: int = 3,
                  max_retries: int = 2) -> None:
         from src.graph.pipeline import create_pipeline
@@ -140,6 +140,7 @@ class LocalRunner:
         self._set_execution_mode = set_execution_mode
         self.config = PipelineConfig(
             confidence_threshold=confidence_threshold,
+            disambiguation_clear_confidence=0.85,
             max_retries=max_retries,
             num_sql_variations=num_sql_variations,
             llm_provider=os.environ.get("LLM_PROVIDER", "auto"),

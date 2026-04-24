@@ -86,13 +86,33 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install flask flask-cors langgraph langchain chromadb openai anthropic google-generativeai
 
-# Set API key (choose one)
-export OPENAI_API_KEY="your-key"
-# or
-export ANTHROPIC_API_KEY="your-key"
-# or
-export GOOGLE_API_KEY="your-key"
+# Pick an LLM backend (choose one):
+export ANTHROPIC_API_KEY="your-key"   # cloud, best quality
+export GOOGLE_API_KEY="your-key"      # cloud, free tier with daily quota
+# ...or run a local model with Ollama (no API key, no rate limits):
+#   1. Install Ollama from https://ollama.com
+#   2. ollama pull qwen2.5-coder:7b   # ~4.7 GB, very strong at SQL
+#   3. export LLM_PROVIDER=ollama
 ```
+
+### Local model via Ollama
+
+Use this when the cloud provider's quota is exhausted or you want to iterate
+on the benchmark for free.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LLM_PROVIDER` | `auto` | Set to `ollama` to force local. `auto` falls back to Ollama if no cloud key is set and a local server is running. |
+| `OLLAMA_MODEL` | `qwen2.5-coder:7b` | Any tag visible in `ollama list`. `llama3.1:8b` and `granite3-dense:8b` also work. |
+| `OLLAMA_HOST` | `http://localhost:11434` | Override if Ollama is on a different host/port. |
+| `OLLAMA_NUM_CTX` | `8192` | Bump for very large schemas. |
+
+**Caveats** — Ollama does not expose token-level log probabilities, so the
+log-prob signal contributes neutrally (0.5) to composite confidence. Execution
+entropy, semantic entropy, and self-reported confidence still drive the
+ambiguity gate. Smaller models also produce weaker SQL, so expect more
+false-positive HITL triggers than with Claude/Gemini — local is best for
+*iterating* on the pipeline, cloud is best for *headline benchmark numbers*.
 
 ---
 

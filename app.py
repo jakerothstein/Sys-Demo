@@ -685,6 +685,8 @@ def format_response(result: dict) -> dict:
         'result_clusters': result.get('result_clusters', []),
         'skeleton_clusters': result.get('skeleton_clusters', []),
         'sql_executions': result.get('sql_executions', []),
+        'unanimous_structural_divergence': result.get('unanimous_structural_divergence', False),
+        'schema_diversity': result.get('schema_diversity', {}),
         'quality_gate_passed': result.get('quality_gate_passed', None),
         'quality_gate_reasons': result.get('quality_gate_reasons', []),
 

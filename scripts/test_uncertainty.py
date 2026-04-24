@@ -33,6 +33,11 @@ from src.graph.nodes import (
     _compute_composite_confidence,
 )
 from src.graph.edges import should_execute_or_clarify, should_evaluate_or_clarify
+from src.graph.schema_ref_diversity import (
+    detect_unanimous_structural_ambiguity,
+    extract_table_names,
+    extract_schema_identifiers,
+)
 from app import format_response
 
 
@@ -120,6 +125,56 @@ def test_normalize_helpers() -> None:
 
     assert _normalize_logprob(None) == 0.5, "missing logprob returns neutral 0.5"
     assert _normalize_logprob(0.0) > _normalize_logprob(-5.0), "higher logprob => higher score"
+
+
+def test_schema_ref_extraction() -> None:
+    # Use length-2+ column names (single-letter aliases are dropped as noise).
+    sql = "SELECT aa, bb FROM foo JOIN bar ON foo.id = bar.xx"
+    assert "foo" in extract_table_names(sql) and "bar" in extract_table_names(sql)
+    idents = extract_schema_identifiers(sql)
+    assert "aa" in idents and "bb" in idents and "foo" in idents
+
+
+def test_detector_unanimous_structural_true_different_tables() -> None:
+    """AmbiQT tbl-synonym: same rows possible from different copied tables -> abstain."""
+    sqls = [
+        "SELECT name FROM orchestra WHERE id = 1",
+        "SELECT name FROM ensemble WHERE id = 1",
+        "SELECT name FROM symphony WHERE id = 1",
+    ]
+    ok, d = detect_unanimous_structural_ambiguity(
+        sqls,
+        result_clusters=[{"size": 3, "hash": "h"}],
+        skeleton_clusters=[{"s": 1}, {"s": 1}, {"s": 1}],
+        execution_entropy=0.0,
+        semantic_entropy=1.585,
+        n_success=3,
+        n_sqls=3,
+        thresholds={},
+    )
+    assert ok, d
+    assert d["union_table_count"] >= 2
+
+
+def test_detector_paraphrase_count_rejected() -> None:
+    """COUNT/COUNT/… paraphrase: at most 3 idents, must not fire structural abstention."""
+    sqls = [
+        "SELECT COUNT(*) FROM employees",
+        "SELECT COUNT(id) FROM employees",
+        "SELECT COUNT(DISTINCT id) FROM employees",
+    ]
+    ok, d = detect_unanimous_structural_ambiguity(
+        sqls,
+        result_clusters=[{"size": 3}],
+        skeleton_clusters=[{"s": 1}, {"s": 1}, {"s": 1}],
+        execution_entropy=0.0,
+        semantic_entropy=1.585,
+        n_success=3,
+        n_sqls=3,
+        thresholds={},
+    )
+    assert not ok, d
+    assert d.get("reason") == "schema_reference_spread_too_low"
 
 
 def test_composite_confidence_monotonic() -> None:
@@ -387,6 +442,8 @@ def test_format_response_surfaces_signals() -> None:
         "result_clusters": [{"size": 2}, {"size": 1}],
         "skeleton_clusters": [{"size": 3}],
         "sql_executions": [],
+        "unanimous_structural_divergence": False,
+        "schema_diversity": {"union_table_count": 1},
         "quality_gate_passed": True,
         "quality_gate_reasons": [],
     }
@@ -395,6 +452,7 @@ def test_format_response_surfaces_signals() -> None:
         "execution_entropy", "semantic_entropy", "composite_confidence",
         "sequence_logprob", "min_token_confidence",
         "result_clusters", "skeleton_clusters",
+        "unanimous_structural_divergence", "schema_diversity",
         "quality_gate_passed", "quality_gate_reasons",
     ):
         assert key in resp, f"format_response missing {key}"
@@ -412,6 +470,9 @@ TESTS: List[tuple[str, Callable[[], None]]] = [
     ("helpers/logprob_features",           test_logprob_features),
     ("helpers/normalize_helpers",          test_normalize_helpers),
     ("helpers/composite_confidence",       test_composite_confidence_monotonic),
+    ("schema_ref/extract",                 test_schema_ref_extraction),
+    ("schema_ref/detector_ambiqt_tables", test_detector_unanimous_structural_true_different_tables),
+    ("schema_ref/detector_paraphrase_no",  test_detector_paraphrase_count_rejected),
     ("node/consistency_unanimous",         test_consistency_unanimous),
     ("node/consistency_ambiguous",         test_consistency_ambiguous_execution),
     ("node/consistency_paraphrase_passes", test_consistency_paraphrase_passes),

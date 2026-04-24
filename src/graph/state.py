@@ -48,6 +48,9 @@ class AgentState(TypedDict, total=False):
     result_clusters: List[dict]       # [{cluster_id, size, sample_sql, sample_rows, hash}]
     skeleton_clusters: List[dict]     # [{skeleton, size, sqls}]
     sql_executions: List[dict]        # per-SQL execution outcomes (cached)
+    # Unanimous rows + divergent schema references (AmbiQT-style synonym DBs)
+    unanimous_structural_divergence: bool
+    schema_diversity: Dict[str, Any]
 
     # Confidence signals (calibration features)
     sequence_logprob: Optional[float]      # length-normalized average log-prob
@@ -100,6 +103,14 @@ DEFAULT_CALIBRATION: Dict[str, Any] = {
         # Tokens with very low local probability are a hallucination signal.
         # -10 effectively disables it; tighten after calibration.
         "sequence_logprob_min": -10.0,
+        # Unanimous execution + high structural diversity: ask HITL when
+        # candidates reference >=2 distinct tables OR >=4 distinct identifiers
+        # (see schema_ref_diversity.detect_unanimous_structural_ambiguity).
+        "structural_divergence_semantic_min": 1.45,
+        "structural_divergence_min_skeletons": 3,
+        "structural_divergence_min_distinct_tables": 2,
+        "structural_divergence_min_distinct_identifiers": 4,
+        "structural_divergence_exec_epsilon": 0.01,
     },
     "weights": {
         # Weighted sum that produces composite_confidence in [0, 1].

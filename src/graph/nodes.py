@@ -21,6 +21,7 @@ import re
 from typing import Dict, Any, List, Optional, Tuple
 
 from .state import AgentState, PipelineConfig
+from .schema_ref_diversity import detect_unanimous_structural_ambiguity
 from src.data.vector_store import get_schema_store
 
 
@@ -834,6 +835,8 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
             'result_clusters': [],
             'skeleton_clusters': [],
             'sql_executions': [],
+            'unanimous_structural_divergence': False,
+            'schema_diversity': {},
             'sequence_logprob': logprob_feats['sequence_logprob'],
             'min_token_confidence': logprob_feats['min_token_confidence'],
             'composite_confidence': 0.0,
@@ -854,6 +857,8 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
             'result_clusters': [],
             'skeleton_clusters': [],
             'sql_executions': [],
+            'unanimous_structural_divergence': False,
+            'schema_diversity': {},
             'sequence_logprob': logprob_feats['sequence_logprob'],
             'min_token_confidence': logprob_feats['min_token_confidence'],
             'composite_confidence': 0.0,
@@ -973,6 +978,19 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
         and (exec_conclusive or semantic_entropy <= sem_thresh)
     )
 
+    u_div, div_detail = detect_unanimous_structural_ambiguity(
+        sqls,
+        result_clusters=result_clusters,
+        skeleton_clusters=skeleton_clusters,
+        execution_entropy=exec_entropy,
+        semantic_entropy=semantic_entropy,
+        n_success=n_success,
+        n_sqls=len(sqls),
+        thresholds=thresholds,
+    )
+    if u_div:
+        consistency_passed = False
+
     if not result_clusters:
         analysis = (
             f"All {len(sqls)} candidate(s) failed to execute -> consistency cannot be verified."
@@ -982,6 +1000,11 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
             f"All {n_success}/{len(sqls)} successful candidates returned the same result "
             f"(execution entropy = 0 bits)."
         )
+        if u_div:
+            analysis += (
+                " Candidates disagree on which tables or columns to use while returning "
+                "identical rows; treating as schema-reference ambiguity and abstaining for clarification."
+            )
     else:
         top = result_clusters[0]["size"]
         analysis = (
@@ -997,6 +1020,8 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
         'semantic_entropy': semantic_entropy,
         'result_clusters': result_clusters,
         'skeleton_clusters': skeleton_clusters,
+        'unanimous_structural_divergence': u_div,
+        'schema_diversity': div_detail,
         'sql_executions': [
             {k: v for k, v in e.items() if k != "result"}  # drop heavy payload
             for e in executions

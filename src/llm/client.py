@@ -1,12 +1,19 @@
 """
-Unified LLM Client supporting Anthropic Claude and Google Gemini.
-Supports native structured outputs for guaranteed valid JSON responses.
+Unified LLM Client supporting Anthropic Claude, Google Gemini, and local
+Ollama models.
+
+- Anthropic / Google: cloud, structured outputs supported.
+- Ollama: local, native JSON-format mode, no API key, no rate limits.
+  Best for fast iteration on the ambiguity benchmark when cloud quotas are
+  exhausted. Recommended models: qwen2.5-coder:7b, llama3.1:8b, granite3-dense:8b.
 """
 import json
 import os
 import math
 import re
 import time
+import urllib.error
+import urllib.request
 from typing import Optional, Dict, Any, Tuple, List
 from abc import ABC, abstractmethod
 
@@ -259,48 +266,243 @@ class GoogleClient(BaseLLMClient):
         )
 
 
+class OllamaClient(BaseLLMClient):
+    """
+    Local LLM client backed by Ollama (https://ollama.com).
+
+    No API key, no rate limits. Designed for fast iteration on the ambiguity
+    benchmark. Uses Ollama's native /api/chat endpoint with JSON-mode for
+    structured outputs (the same JSON Schema we send to Anthropic / Google
+    is forwarded as Ollama's `format` parameter, which Ollama 0.5+ honours).
+
+    Token-level log probabilities are NOT exposed by Ollama's standard API,
+    so this client returns an empty token list. The pipeline's composite
+    confidence still works via execution entropy + self-reported confidence
+    + result clustering -- the logprob term simply contributes a neutral 0.
+
+    Configuration (env vars):
+      OLLAMA_HOST   - base URL (default http://localhost:11434)
+      OLLAMA_MODEL  - model tag (default qwen2.5-coder:7b)
+    """
+
+    DEFAULT_MODEL = "qwen2.5-coder:7b"
+    DEFAULT_HOST = "http://localhost:11434"
+
+    def __init__(self, model: Optional[str] = None,
+                 host: Optional[str] = None,
+                 temperature: float = 0.1,
+                 timeout: float = 180.0,
+                 num_ctx: Optional[int] = None,
+                 keep_alive: str = "30m"):
+        self.model = model or os.environ.get("OLLAMA_MODEL") or self.DEFAULT_MODEL
+        self.host = (host or os.environ.get("OLLAMA_HOST") or self.DEFAULT_HOST).rstrip("/")
+        self.temperature = temperature
+        self.timeout = timeout
+        # SQL prompts can be long; bump default context to 8192.
+        self.num_ctx = num_ctx or int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
+        self.keep_alive = keep_alive
+        # Cached availability check to avoid hitting the server every call.
+        self._available: Optional[bool] = None
+        self._available_models: Optional[List[str]] = None
+        # Tri-state: structured-output (`format=<schema>`) is Ollama 0.5+;
+        # if the server rejects it we fall back to plain JSON mode.
+        self._schema_supported: Optional[bool] = None
+
+    def _http_post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        req = urllib.request.Request(
+            self.host + path,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def _http_get(self, path: str) -> Dict[str, Any]:
+        with urllib.request.urlopen(self.host + path, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def _probe(self) -> bool:
+        try:
+            data = self._http_get("/api/tags")
+            self._available_models = [m.get("name", "") for m in data.get("models", [])]
+            return True
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+            return False
+        except Exception:  # noqa: BLE001
+            return False
+
+    def is_available(self) -> bool:
+        if self._available is None:
+            self._available = self._probe()
+        return self._available
+
+    def list_models(self) -> List[str]:
+        if self._available_models is None:
+            self._probe()
+        return list(self._available_models or [])
+
+    def _has_model(self) -> bool:
+        models = self.list_models()
+        if not models:
+            return False
+        # Ollama tags include `:tag`. Accept exact or tag-prefix match.
+        return any(m == self.model or m.startswith(self.model.split(":")[0] + ":")
+                   for m in models)
+
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None,
+                 **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
+        if not self.is_available():
+            raise RuntimeError(
+                f"Ollama not reachable at {self.host}. "
+                f"Install from https://ollama.com and run `ollama serve`."
+            )
+        if not self._has_model():
+            available = ", ".join(self.list_models()) or "<none>"
+            raise RuntimeError(
+                f"Ollama model '{self.model}' is not pulled locally.\n"
+                f"Run: ollama pull {self.model}\n"
+                f"Currently available: {available}"
+            )
+
+        # Build options: temperature + larger context for SQL prompts.
+        options: Dict[str, Any] = {
+            "temperature": self.temperature,
+            "num_ctx": self.num_ctx,
+        }
+
+        # Structured outputs:
+        #   - Ollama 0.5+ accepts a JSON-Schema dict as `format`.
+        #   - Older versions only accept the literal string "json".
+        # We try schema first, fall back on rejection, and remember the result.
+        want_schema = response_schema is not None and self._schema_supported is not False
+        format_value: Any
+        if want_schema:
+            format_value = response_schema
+        elif response_schema is not None:
+            format_value = "json"
+        else:
+            format_value = None
+
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": options,
+            "keep_alive": self.keep_alive,
+        }
+        if format_value is not None:
+            payload["format"] = format_value
+
+        try:
+            resp = self._http_post("/api/chat", payload)
+        except urllib.error.HTTPError as e:
+            err_body = ""
+            try:
+                err_body = e.read().decode("utf-8", errors="ignore")
+            except Exception:  # noqa: BLE001
+                pass
+            # Schema unsupported: retry once with plain JSON mode and remember.
+            if want_schema and ("format" in err_body.lower() or e.code in (400, 422)):
+                if self._schema_supported is not False:
+                    print(f"[Ollama] structured-output schema rejected by '{self.model}', "
+                          f"falling back to JSON mode. Detail: {err_body[:200]}")
+                self._schema_supported = False
+                payload["format"] = "json" if response_schema is not None else None
+                if payload["format"] is None:
+                    payload.pop("format", None)
+                resp = self._http_post("/api/chat", payload)
+            else:
+                raise RuntimeError(
+                    f"Ollama HTTP {e.code} from /api/chat: {err_body[:300]}"
+                ) from e
+
+        # Confirm schema support on first success.
+        if want_schema and self._schema_supported is None:
+            self._schema_supported = True
+
+        text = (resp.get("message") or {}).get("content", "") or resp.get("response", "")
+        if not text:
+            raise RuntimeError(f"Ollama returned empty response: {resp}")
+
+        # Token logprobs not exposed by Ollama in a standardized way -> empty.
+        return text, []
+
+
 
 def create_llm_client(provider: str = "auto", **kwargs) -> BaseLLMClient:
     """
     Factory function to create an LLM client.
-    
+
     Args:
-        provider: "anthropic", "google", or "auto" (tries in order)
+        provider: "anthropic", "google", "ollama", or "auto"
+                  (auto respects $LLM_PROVIDER, then tries cloud, then local).
         **kwargs: Additional arguments passed to the client
-        
+
     Returns:
         An LLM client instance
     """
+    # Allow env-var override even when caller passes "auto".
+    if provider == "auto":
+        env_provider = os.environ.get("LLM_PROVIDER", "").strip().lower()
+        if env_provider in ("anthropic", "google", "ollama"):
+            provider = env_provider
+
     if provider == "anthropic":
         client = AnthropicClient(**kwargs)
         if client.is_available():
             return client
         raise RuntimeError("Anthropic API key not found. Set ANTHROPIC_API_KEY environment variable.")
-    
+
     if provider == "google":
         client = GoogleClient(**kwargs)
         if client.is_available():
             return client
         raise RuntimeError("Google API key not found. Set GOOGLE_API_KEY environment variable.")
-    
+
+    if provider == "ollama":
+        # Drop kwargs that don't apply to Ollama to avoid TypeErrors when the
+        # caller passes shared cloud-style options.
+        ollama_kwargs = {k: v for k, v in kwargs.items()
+                         if k in {"model", "host", "temperature", "timeout",
+                                  "num_ctx", "keep_alive"}}
+        client = OllamaClient(**ollama_kwargs)
+        if client.is_available():
+            print(f"Using Ollama (model={client.model}, host={client.host})")
+            return client
+        raise RuntimeError(
+            f"Ollama not reachable at {client.host}.\n"
+            f"Install from https://ollama.com, run `ollama serve`, then "
+            f"`ollama pull {client.model}`."
+        )
+
     if provider == "auto":
-        # Try Anthropic first
+        # Try Anthropic first.
         anthropic_client = AnthropicClient(**kwargs)
         if anthropic_client.is_available():
             print("Using Anthropic Claude")
             return anthropic_client
-        
-        # Try Google
+
+        # Then Google.
         google_client = GoogleClient(**kwargs)
         if google_client.is_available():
             print("Using Google Gemini")
             return google_client
-        
+
+        # Finally, fall back to a local Ollama server if one is running.
+        ollama_kwargs = {k: v for k, v in kwargs.items()
+                         if k in {"model", "host", "temperature", "timeout",
+                                  "num_ctx", "keep_alive"}}
+        ollama_client = OllamaClient(**ollama_kwargs)
+        if ollama_client.is_available():
+            print(f"Using Ollama (model={ollama_client.model}, host={ollama_client.host})")
+            return ollama_client
+
         raise RuntimeError(
-            "CRITICAL EXCEPTION: No LLM API keys found.\n"
-            "This pipeline requires either ANTHROPIC_API_KEY or GOOGLE_API_KEY "
-            "to be set in the environment variables.\n"
-            "Example: export GOOGLE_API_KEY='your-key-here'"
+            "CRITICAL EXCEPTION: No LLM backend available.\n"
+            "Set ANTHROPIC_API_KEY or GOOGLE_API_KEY, or run a local Ollama "
+            "server (https://ollama.com) and `ollama pull qwen2.5-coder:7b`.\n"
+            "You can also force a backend with LLM_PROVIDER=ollama."
         )
-    
+
     raise ValueError(f"Unknown provider: {provider}")

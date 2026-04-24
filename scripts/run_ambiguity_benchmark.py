@@ -34,6 +34,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -97,9 +98,13 @@ def breakdown_by(key: str, outcomes: List[Dict[str, Any]]) -> Dict[str, Dict[str
 def _summarize(q: Dict[str, Any], result: Dict[str, Any],
                error: Optional[str] = None) -> Dict[str, Any]:
     predicted_hitl = result.get("final_status") == "paused_hitl"
+    sql_vars = result.get("generated_sqls") or result.get("sql_variations")
+    if not sql_vars and isinstance(result.get("sql"), str):
+        sql_vars = []
     return {
         "id": q["id"],
         "db_id": q["db_id"],
+        "dataset": q.get("dataset"),
         "question": q["question"],
         "category": q.get("category", ""),
         "expected_hitl": q["expected_hitl"],
@@ -111,9 +116,13 @@ def _summarize(q: Dict[str, Any], result: Dict[str, Any],
         "composite_confidence": result.get("composite_confidence"),
         "execution_entropy": result.get("execution_entropy"),
         "semantic_entropy": result.get("semantic_entropy"),
+        "unanimous_structural_divergence": result.get("unanimous_structural_divergence"),
+        "schema_diversity": result.get("schema_diversity"),
         "consistency_passed": result.get("consistency_passed"),
+        "consistency_analysis": (result.get("consistency_analysis") or "")[:4000],
         "quality_gate_reasons": result.get("quality_gate_reasons") or [],
-        "selected_sql": (result.get("selected_sql") or "")[:400],
+        "selected_sql": (result.get("selected_sql") or "")[:4000],
+        "sql_variations": [((s or "")[:4000]) for s in (sql_vars or [])[:20]],
     }
 
 
@@ -139,22 +148,28 @@ class LocalRunner:
         self.pipeline = create_pipeline(config=self.config, llm_client=self.llm_client)
         self._db_cache: Optional[str] = None
 
-    def _switch_db(self, db_id: str) -> None:
+    def _switch_db(self, db_id: str, preferred_dataset: Optional[str] = None) -> None:
         if db_id == self._db_cache:
             return
-        ok = self._set_execution_mode("benchmark", db_id, "custom")
-        if not ok:
-            for ds in ("bird", "spider"):
-                if self._set_execution_mode("benchmark", db_id, ds):
-                    ok = True
-                    break
+        # Try the caller-specified dataset first, then fall back through the
+        # known buckets. `ambiqt_colsyn` / `ambiqt_tblsyn` = materialized
+        # AmbiQT syn DBs; `ambiqt` = raw Spider copies from the AmbiQT zip.
+        order = ["custom", "bird", "spider", "ambiqt_colsyn", "ambiqt_tblsyn", "ambiqt"]
+        if preferred_dataset and preferred_dataset in order:
+            order.remove(preferred_dataset)
+            order.insert(0, preferred_dataset)
+        ok = False
+        for ds in order:
+            if self._set_execution_mode("benchmark", db_id, ds):
+                ok = True
+                break
         if not ok:
             raise RuntimeError(f"Could not switch to database '{db_id}'")
         self._db_cache = db_id
 
     def run_one(self, q: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            self._switch_db(q["db_id"])
+            self._switch_db(q["db_id"], preferred_dataset=q.get("dataset"))
             result = self.pipeline.run(
                 q["question"], session_id=f"bench_{q['id']}_{int(time.time())}"
             )
@@ -184,12 +199,16 @@ class ServerRunner:
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
-    def _switch_db(self, db_id: str) -> None:
+    def _switch_db(self, db_id: str, preferred_dataset: Optional[str] = None) -> None:
         if db_id == self._db_cache:
             return
         # The server uses {mode, db_id, dataset}. Try each dataset bucket.
         last_err: Optional[str] = None
-        for dataset in ("custom", "bird", "spider"):
+        order = ["custom", "bird", "spider", "ambiqt_colsyn", "ambiqt_tblsyn", "ambiqt"]
+        if preferred_dataset and preferred_dataset in order:
+            order.remove(preferred_dataset)
+            order.insert(0, preferred_dataset)
+        for dataset in order:
             try:
                 r = self._post(
                     "/api/databases/switch",
@@ -207,7 +226,7 @@ class ServerRunner:
 
     def run_one(self, q: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            self._switch_db(q["db_id"])
+            self._switch_db(q["db_id"], preferred_dataset=q.get("dataset"))
             r = self._post(
                 "/api/query",
                 {"query": q["question"],
@@ -232,9 +251,13 @@ class ServerRunner:
             "composite_confidence": r.get("composite_confidence"),
             "execution_entropy": r.get("execution_entropy"),
             "semantic_entropy": r.get("semantic_entropy"),
+            "unanimous_structural_divergence": r.get("unanimous_structural_divergence"),
+            "schema_diversity": r.get("schema_diversity"),
             "consistency_passed": r.get("consistency_passed"),
+            "consistency_analysis": r.get("consistency_analysis", ""),
             "quality_gate_reasons": r.get("quality_gate_reasons"),
             "selected_sql": r.get("sql") or "",
+            "generated_sqls": r.get("sql_variations") or r.get("generated_sqls", []),
         }
         # Sanity: is_ambiguous sometimes set even when status=SUCCESS
         if not is_hitl and r.get("is_ambiguous"):
@@ -287,6 +310,10 @@ def main() -> int:
     parser.add_argument("--server", default="",
                         help="Hit a running Flask app, e.g. http://127.0.0.1:5000. "
                              "If unset, runs pipeline in-process.")
+    parser.add_argument("--paper-run", action="store_true",
+                        help="Package results+summary+calibration under data/benchmark_runs/ for a paper / appendix.")
+    parser.add_argument("--run-name", default="",
+                        help="Subfolder name under data/benchmark_runs/; default: ambiguity_<UTC timestamp>.")
     args = parser.parse_args()
 
     bench_path = Path(args.benchmark)
@@ -378,7 +405,19 @@ def main() -> int:
         for e in errors[:5]:
             print(f"  {e['id']}: {e['error']}")
 
+    run_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     summary = {
+        "run_timestamp_utc": run_ts,
+        "benchmark_path": str(bench_path.resolve()),
+        "benchmark_header": {k: v for k, v in data.items() if k != "questions"},
+        "cli": {k: getattr(args, k) for k in (
+            "count", "balanced", "db", "seed", "resume", "server", "output", "summary",
+        ) if hasattr(args, k)},
+        "environment": {
+            "LLM_PROVIDER": os.environ.get("LLM_PROVIDER", ""),
+            "OLLAMA_MODEL": os.environ.get("OLLAMA_MODEL", ""),
+            "GOOGLE_MODEL": os.environ.get("GOOGLE_MODEL", ""),
+        },
         "overall": overall,
         "by_database": breakdown_by("db_id", outcomes),
         "by_category": breakdown_by("category", outcomes),
@@ -386,9 +425,22 @@ def main() -> int:
         "n_total": len(outcomes),
         "n_errors": len(errors),
     }
-    Path(args.summary).write_text(json.dumps(summary, indent=2))
+    Path(args.summary).write_text(json.dumps(summary, indent=2, default=str))
     print(f"\nPer-question outcomes: {output_path}")
     print(f"Summary JSON:          {args.summary}")
+
+    if args.paper_run or args.run_name:
+        from scripts.benchmark_artifacts import write_run_bundle
+        root = Path(__file__).resolve().parent.parent
+        rname = args.run_name or f"ambiguity_{run_ts}"
+        out_dir = write_run_bundle(
+            root,
+            results_path=output_path,
+            summary_path=Path(args.summary),
+            run_name=rname,
+            extra={"script": "run_ambiguity_benchmark.py", "cli": summary["cli"]},
+        )
+        print(f"Paper artifact bundle: {out_dir}/")
     return 0
 
 

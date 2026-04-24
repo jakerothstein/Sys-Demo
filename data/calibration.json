@@ -7,7 +7,12 @@
         "execution_entropy_max": 0.6,
         "semantic_entropy_max": 1.2,
         "composite_confidence_min": 0.65,
-        "sequence_logprob_min": -10.0
+        "sequence_logprob_min": -10.0,
+        "structural_divergence_semantic_min": 1.45,
+        "structural_divergence_min_skeletons": 3,
+        "structural_divergence_min_distinct_tables": 2,
+        "structural_divergence_min_distinct_identifiers": 4,
+        "structural_divergence_exec_epsilon": 0.01
     },
     "weights": {
         "self_reported": 0.30,

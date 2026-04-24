@@ -1,0 +1,18 @@
+[
+  {
+    "subtype": "col-synonyms",
+    "dbs": 20,
+    "new_cols": 484,
+    "new_tbls": 0,
+    "missing": [],
+    "errors": []
+  },
+  {
+    "subtype": "tbl-synonyms",
+    "dbs": 20,
+    "new_cols": 0,
+    "new_tbls": 151,
+    "missing": [],
+    "errors": []
+  }
+]

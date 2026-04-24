@@ -1,70 +1,70 @@
 {
   "overall": {
-    "n": 9,
-    "tp": 5,
+    "n": 20,
+    "tp": 10,
     "fp": 4,
-    "tn": 0,
+    "tn": 6,
     "fn": 0,
-    "accuracy": 0.5555555555555556,
-    "precision_hitl": 0.5555555555555556,
+    "accuracy": 0.8,
+    "precision_hitl": 0.7142857142857143,
     "recall_hitl": 1.0,
-    "f1_hitl": 0.7142857142857143,
-    "specificity_answerable": 0.0
+    "f1_hitl": 0.8333333333333333,
+    "specificity_answerable": 0.6
   },
   "by_database": {
-    "company_analytics": {
-      "n": 9,
-      "tp": 5,
-      "fp": 4,
-      "tn": 0,
-      "fn": 0,
-      "accuracy": 0.5555555555555556,
-      "precision_hitl": 0.5555555555555556,
-      "recall_hitl": 1.0,
-      "f1_hitl": 0.7142857142857143,
-      "specificity_answerable": 0.0
-    },
     "sec_data_v2": {
-      "n": 0,
-      "tp": 0,
+      "n": 4,
+      "tp": 1,
       "fp": 0,
-      "tn": 0,
+      "tn": 3,
       "fn": 0,
-      "accuracy": 0.0,
-      "precision_hitl": 0.0,
-      "recall_hitl": 0.0,
-      "f1_hitl": 0.0,
-      "specificity_answerable": 0.0
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 1.0
+    },
+    "company_analytics": {
+      "n": 14,
+      "tp": 8,
+      "fp": 4,
+      "tn": 2,
+      "fn": 0,
+      "accuracy": 0.7142857142857143,
+      "precision_hitl": 0.6666666666666666,
+      "recall_hitl": 1.0,
+      "f1_hitl": 0.8,
+      "specificity_answerable": 0.3333333333333333
+    },
+    "sample_company": {
+      "n": 2,
+      "tp": 1,
+      "fp": 0,
+      "tn": 1,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 1.0
     }
   },
   "by_category": {
-    "group_by_count": {
+    "filter_count_distinct": {
       "n": 1,
       "tp": 0,
-      "fp": 1,
-      "tn": 0,
+      "fp": 0,
+      "tn": 1,
       "fn": 0,
-      "accuracy": 0.0,
+      "accuracy": 1.0,
       "precision_hitl": 0.0,
       "recall_hitl": 0.0,
       "f1_hitl": 0.0,
-      "specificity_answerable": 0.0
-    },
-    "filter_count": {
-      "n": 1,
-      "tp": 0,
-      "fp": 1,
-      "tn": 0,
-      "fn": 0,
-      "accuracy": 0.0,
-      "precision_hitl": 0.0,
-      "recall_hitl": 0.0,
-      "f1_hitl": 0.0,
-      "specificity_answerable": 0.0
+      "specificity_answerable": 1.0
     },
     "under_specified": {
-      "n": 3,
-      "tp": 3,
+      "n": 6,
+      "tp": 6,
       "fp": 0,
       "tn": 0,
       "fn": 0,
@@ -75,6 +75,30 @@
       "specificity_answerable": 0.0
     },
     "simple_count": {
+      "n": 2,
+      "tp": 0,
+      "fp": 0,
+      "tn": 2,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 1.0
+    },
+    "filter_count": {
+      "n": 2,
+      "tp": 0,
+      "fp": 0,
+      "tn": 2,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 1.0
+    },
+    "simple_projection": {
       "n": 1,
       "tp": 0,
       "fp": 1,
@@ -86,19 +110,19 @@
       "f1_hitl": 0.0,
       "specificity_answerable": 0.0
     },
-    "missing_subject": {
-      "n": 1,
-      "tp": 1,
-      "fp": 0,
-      "tn": 0,
+    "join_projection": {
+      "n": 2,
+      "tp": 0,
+      "fp": 1,
+      "tn": 1,
       "fn": 0,
-      "accuracy": 1.0,
-      "precision_hitl": 1.0,
-      "recall_hitl": 1.0,
-      "f1_hitl": 1.0,
-      "specificity_answerable": 0.0
+      "accuracy": 0.5,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 0.5
     },
-    "simple_projection": {
+    "group_by_count": {
       "n": 1,
       "tp": 0,
       "fp": 1,
@@ -121,14 +145,57 @@
       "recall_hitl": 1.0,
       "f1_hitl": 1.0,
       "specificity_answerable": 0.0
+    },
+    "ambiguous_modifier": {
+      "n": 1,
+      "tp": 1,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 0.0
+    },
+    "missing_subject": {
+      "n": 1,
+      "tp": 1,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 0.0
+    },
+    "group_order_limit": {
+      "n": 1,
+      "tp": 0,
+      "fp": 1,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 0.0,
+      "precision_hitl": 0.0,
+      "recall_hitl": 0.0,
+      "f1_hitl": 0.0,
+      "specificity_answerable": 0.0
+    },
+    "metric_undefined": {
+      "n": 1,
+      "tp": 1,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "accuracy": 1.0,
+      "precision_hitl": 1.0,
+      "recall_hitl": 1.0,
+      "f1_hitl": 1.0,
+      "specificity_answerable": 0.0
     }
   },
-  "errors": [
-    {
-      "id": "sec_ans_07",
-      "error": "TimeoutError: timed out"
-    }
-  ],
-  "n_total": 10,
-  "n_errors": 1
+  "errors": [],
+  "n_total": 20,
+  "n_errors": 0
 }

@@ -67,56 +67,15 @@ def should_evaluate_or_clarify(state: AgentState, config: PipelineConfig) -> Lit
 
 def should_execute_or_clarify(state: AgentState, config: PipelineConfig) -> Literal["execute_sql", "ask_user"]:
     """
-    Quality gate: combines all uncertainty signals against calibrated thresholds.
-
-    Accepts only if EVERY criterion holds:
-      - experts approved
-      - composite_confidence >= calibrated minimum
-      - sequence log-prob (if available) >= calibrated minimum
-      - legacy confidence_score >= config.confidence_threshold (back-compat)
-
-    Otherwise routes to HITL with a precise list of failing criteria.
-    Mirrors the "release stage quality gate" from DeepEye-SQL (arXiv 2510.17586).
+    Read the pre-computed quality gate decision written by quality_gate_node.
+    The evaluation logic lives in quality_gate_node so that pass/fail + reasons
+    are properly persisted in LangGraph state (edge functions cannot mutate state).
     """
     if state.get('user_feedback'):
         return "execute_sql"
-
-    thresholds = _calibrated_thresholds(config)
-    reasons = []
-
-    if not state.get('expert_approved', True):
-        reasons.append("Mixture-of-Experts did not approve the SQL.")
-
-    composite = float(state.get('composite_confidence', state.get('confidence_score', 1.0)))
-    composite_min = float(thresholds.get('composite_confidence_min', 0.65))
-    if composite < composite_min:
-        reasons.append(
-            f"Composite confidence {composite:.2f} < calibrated minimum {composite_min:.2f}."
-        )
-
-    seq_lp = state.get('sequence_logprob')
-    seq_lp_min = float(thresholds.get('sequence_logprob_min', -10.0))
-    if seq_lp is not None and float(seq_lp) < seq_lp_min:
-        reasons.append(
-            f"Avg token log-prob {float(seq_lp):.2f} < minimum {seq_lp_min:.2f}."
-        )
-
-    if state.get('confidence_score', 1.0) < config.confidence_threshold:
-        reasons.append(
-            f"Self-reported confidence {state.get('confidence_score', 1.0):.2f} "
-            f"< threshold {config.confidence_threshold:.2f}."
-        )
-
-    if reasons:
-        # Stash reasons for the HITL message + UI surfacing.
-        state['quality_gate_passed'] = False
-        state['quality_gate_reasons'] = reasons
-        return "ask_user"
-
-    state['quality_gate_passed'] = True
-    state['quality_gate_reasons'] = []
-    return "execute_sql"
-
+    if state.get('quality_gate_passed', True):
+        return "execute_sql"
+    return "ask_user"
 
 def should_retry(state: AgentState, config: PipelineConfig) -> Literal["debug", "fail"]:
     """

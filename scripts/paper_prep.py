@@ -73,6 +73,11 @@ def check() -> int:
             ROOT / "data" / "benchmark_plots" / "README.json",
             "python scripts/paper_prep.py plots",
         ),
+        (
+            "Spider large benchmark summary (silent-wrong analysis)",
+            ROOT / "data" / "spider" / "spider_large_summary.json",
+            "LLM_PROVIDER=ollama OLLAMA_MODEL=qwen2.5-coder:14b python scripts/run_large_benchmark.py --paper-run",
+        ),
     ]
     print("Paper artifact check\n" + "=" * 60)
     missing_cmds: List[str] = []
@@ -117,6 +122,7 @@ def snapshot() -> int:
         "reproduce": [
             "python scripts/run_ambiguity_benchmark.py --paper-run",
             "python scripts/run_ambiqt.py --paper-run",
+            "LLM_PROVIDER=ollama OLLAMA_MODEL=qwen2.5-coder:14b python scripts/run_large_benchmark.py --paper-run",
             "python scripts/paper_prep.py plots",
             "python scripts/paper_prep.py bundle",
         ],
@@ -125,6 +131,7 @@ def snapshot() -> int:
     for label, path in (
         ("ambiguity_benchmark_summary", amb_path),
         ("ambiqt_summary", ambi_path),
+        ("spider_large_summary", ROOT / "data" / "spider" / "spider_large_summary.json"),
         ("calibration", cal_path),
         ("ambiguity_results_jsonl", ROOT / "data" / "ambiguity_benchmark_results.jsonl"),
     ):

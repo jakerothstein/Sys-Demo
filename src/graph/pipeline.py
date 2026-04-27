@@ -15,7 +15,7 @@ except ImportError:
 from .state import AgentState, PipelineConfig
 from .nodes import (
     disambiguate_node, generate_draft_sql_node, retrieve_examples_node, generate_sql_node,
-    consistency_check_node, evaluate_sql_node, execute_sql_node, debug_node,
+    consistency_check_node, evaluate_sql_node, quality_gate_node, execute_sql_node, debug_node,
     finalize_success_node, finalize_hitl_node, finalize_failure_node
 )
 from .edges import (
@@ -63,6 +63,7 @@ class TextToSQLGraph:
         self.graph.add_node("generate_sql", wrap_node(generate_sql_node))
         self.graph.add_node("consistency_check", wrap_node(consistency_check_node))
         self.graph.add_node("evaluate_sql", wrap_node(evaluate_sql_node))
+        self.graph.add_node("quality_gate", wrap_node_no_llm(quality_gate_node))
         self.graph.add_node("execute_sql", wrap_node_no_llm(execute_sql_node))
         self.graph.add_node("debug", wrap_node(debug_node))
         self.graph.add_node("finalize_success", wrap_node_no_llm(finalize_success_node))
@@ -103,9 +104,12 @@ class TextToSQLGraph:
             }
         )
         
-        # From evaluate_sql: check if we should execute or clarify (MoE penalties)
+        # From evaluate_sql: go to quality_gate
+        self.graph.add_edge("evaluate_sql", "quality_gate")
+
+        # From quality_gate: check if we should execute or clarify
         self.graph.add_conditional_edges(
-            "evaluate_sql",
+            "quality_gate",
             lambda s: should_execute_or_clarify(s, self.config),
             {
                 "execute_sql": "execute_sql",
@@ -142,7 +146,7 @@ class TextToSQLGraph:
         self.compiled = self.graph.compile()
     
     def run(self, user_query: str, user_feedback: Optional[str] = None, 
-            session_id: str = "default") -> Dict[str, Any]:
+            session_id: str = "default", db_id: Optional[str] = None, dataset: str = "spider") -> Dict[str, Any]:
         """
         Run the pipeline for a user query.
         
@@ -150,6 +154,8 @@ class TextToSQLGraph:
             user_query: The natural language query
             user_feedback: Optional clarification from user (for HITL continuation)
             session_id: Session identifier for tracking
+            db_id: Optional benchmark database id to reassert execution mode
+            dataset: Benchmark dataset name when db_id is provided
             
         Returns:
             Final state dictionary
@@ -158,6 +164,8 @@ class TextToSQLGraph:
             'user_query': user_query,
             'session_id': session_id,
             'user_feedback': user_feedback,
+            'db_id': db_id,
+            'dataset': dataset,
             'retry_count': 0,
             'max_retries': self.config.max_retries,
             'final_status': 'in_progress'
@@ -201,17 +209,12 @@ class TextToSQLGraph:
         # Evaluate SQL (MoE)
         state.update(evaluate_sql_node(state, self.config, self.llm_client))
 
-        # Calibrated quality gate: use composite_confidence when available.
-        gate_value = state.get('composite_confidence', state.get('confidence_score', 1.0))
-        cal = getattr(self.config, "calibration", {}) or {}
-        gate_min = float(
-            (cal.get("thresholds", {}) if isinstance(cal, dict) else {}).get(
-                "composite_confidence_min", self.config.confidence_threshold
-            )
-        )
-        if gate_value < gate_min and not state.get('user_feedback'):
+        # Quality gate (now a proper node — writes quality_gate_passed + reasons into state)
+        state.update(quality_gate_node(state, self.config))
+        if not state.get('quality_gate_passed', True) and not state.get('user_feedback'):
             state.update(finalize_hitl_node(state, self.config))
             return dict(state)
+
         
         # Execution loop with retries
         while state.get('retry_count', 0) <= self.config.max_retries:

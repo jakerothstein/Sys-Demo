@@ -1,0 +1,118 @@
+{
+  "benchmark": "AmbiQT (col-synonyms + tbl-synonyms, materialized DBs)",
+  "run_timestamp_utc": "2026-04-24T145816Z",
+  "ambiqt_repo_path": "/Users/jakerothstein/VS Code/VIP/Sys Demo/data/ambiqt",
+  "validation_sources": [
+    "/Users/jakerothstein/VS Code/VIP/Sys Demo/data/ambiqt/benchmark/col-synonyms/validation.json",
+    "/Users/jakerothstein/VS Code/VIP/Sys Demo/data/ambiqt/benchmark/tbl-synonyms/validation.json"
+  ],
+  "materialized_db_roots": {
+    "col-synonyms": "/Users/jakerothstein/VS Code/VIP/Sys Demo/data/ambiqt_colsyn/database",
+    "tbl-synonyms": "/Users/jakerothstein/VS Code/VIP/Sys Demo/data/ambiqt_tblsyn/database"
+  },
+  "k_per_subtype": 10,
+  "subtypes": [
+    "col-synonyms",
+    "tbl-synonyms"
+  ],
+  "seed": 13,
+  "total_run": 20,
+  "metrics": {
+    "overall": {
+      "n": 20,
+      "flagged_hitl": 19,
+      "missed": 1,
+      "recall": 0.95
+    },
+    "by_subtype": {
+      "tbl-synonyms": {
+        "n": 10,
+        "flagged_hitl": 10,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "col-synonyms": {
+        "n": 10,
+        "flagged_hitl": 9,
+        "missed": 1,
+        "recall": 0.9
+      }
+    },
+    "by_db": {
+      "car_1": {
+        "n": 2,
+        "flagged_hitl": 2,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "concert_singer": {
+        "n": 1,
+        "flagged_hitl": 1,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "course_teach": {
+        "n": 1,
+        "flagged_hitl": 1,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "cre_Doc_Template_Mgt": {
+        "n": 2,
+        "flagged_hitl": 2,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "dog_kennels": {
+        "n": 3,
+        "flagged_hitl": 3,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "museum_visit": {
+        "n": 1,
+        "flagged_hitl": 0,
+        "missed": 1,
+        "recall": 0.0
+      },
+      "orchestra": {
+        "n": 3,
+        "flagged_hitl": 3,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "student_transcripts_tracking": {
+        "n": 1,
+        "flagged_hitl": 1,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "tvshow": {
+        "n": 1,
+        "flagged_hitl": 1,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "world_1": {
+        "n": 3,
+        "flagged_hitl": 3,
+        "missed": 0,
+        "recall": 1.0
+      },
+      "wta_1": {
+        "n": 2,
+        "flagged_hitl": 2,
+        "missed": 0,
+        "recall": 1.0
+      }
+    },
+    "n_errors": 0
+  },
+  "provider": "auto",
+  "model": "qwen2.5-coder:14b",
+  "environment": {
+    "LLM_PROVIDER": "",
+    "OLLAMA_MODEL": "qwen2.5-coder:14b",
+    "GOOGLE_MODEL": ""
+  }
+}

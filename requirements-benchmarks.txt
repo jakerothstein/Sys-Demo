@@ -1,2 +1,4 @@
 # Optional: figures from scripts/plot_benchmark_results.py
 matplotlib>=3.7
+openai>=1.0.0
+datasets>=2.0.0

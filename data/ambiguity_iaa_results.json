@@ -1,0 +1,544 @@
+{
+  "n_total": 67,
+  "n_matches": 65,
+  "agreement": 0.9701492537313433,
+  "cohen_kappa": 0.9403383793410508,
+  "results": [
+    {
+      "id": "ca_ans_01",
+      "question": "How many employees are in the company?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user question 'How many employees are in the company?' is clear because it directly maps to counting the number of entries in the 'employees' table. There is no ambiguity in the interpretation of the question, as it specifically asks for the total number of employees, which corresponds to the number of rows in the 'employees' table.",
+      "original_rationale": "Unambiguous: single table, obvious aggregate."
+    },
+    {
+      "id": "ca_ans_02",
+      "question": "List all departments and their budgets.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'List all departments and their budgets' is clear because it directly maps to the 'departments' table, specifically to the 'name' and 'budget' columns. There is no ambiguity in the request, as it specifies exactly what information is needed from the database schema.",
+      "original_rationale": "departments.name + departments.budget \u2014 one table."
+    },
+    {
+      "id": "ca_ans_03",
+      "question": "What is the average salary of all employees?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'What is the average salary of all employees?' is clear because it directly maps to a single column in the 'employees' table, specifically the 'salary' column. The question specifies the calculation of an average, which is a straightforward SQL operation, and it applies to all employees without needing additional filters or context.",
+      "original_rationale": "AVG(salary) on employees."
+    },
+    {
+      "id": "ca_ans_04",
+      "question": "Show the five employees with the highest salaries.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'Show the five employees with the highest salaries' is clear because it directly maps to the 'employees' table, specifically to the 'salary' column. The query specifies the number of employees (five) and the criterion for selection (highest salaries), which can be uniquely translated into a SQL query without ambiguity.",
+      "original_rationale": "ORDER BY salary DESC LIMIT 5."
+    },
+    {
+      "id": "ca_ans_05",
+      "question": "How many customers are in California?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'How many customers are in California?' is clear because it directly maps to a SQL query that counts the number of customers where the 'state' column in the 'customers' table is 'California'. There is no ambiguity in the interpretation of the question or the mapping to the database schema.",
+      "original_rationale": "Literal state filter on customers.state."
+    },
+    {
+      "id": "ca_ans_06",
+      "question": "List every product whose price is greater than 100.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'List every product whose price is greater than 100' is clear because it directly maps to the 'products' table, specifically targeting the 'price' column. The condition 'price is greater than 100' is well-defined and does not require additional context or clarification. There is no ambiguity in the interpretation of the query, as it specifies a straightforward filter on a single column.",
+      "original_rationale": "Single-table predicate."
+    },
+    {
+      "id": "ca_ans_07",
+      "question": "How many completed sales happened in 2024?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'How many completed sales happened in 2024?' is clear because it directly maps to a SQL query. The term 'completed sales' can be interpreted as sales with a 'status' of 'completed', and the year '2024' provides a specific filter for the 'sale_date'. The schema provides all necessary columns to construct this query without ambiguity.",
+      "original_rationale": "status = 'completed' AND strftime('%Y', sale_date) = '2024'."
+    },
+    {
+      "id": "ca_ans_08",
+      "question": "For each department, how many employees work in it?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'For each department, how many employees work in it?' is clear because it directly maps to the database schema. The query seeks to count the number of employees associated with each department, which can be achieved by joining the 'employees' table with the 'departments' table using the 'department_id' column. There is no ambiguity in the request, as it specifies the need for a count of employees per department, which is a straightforward aggregation task.",
+      "original_rationale": "Classic JOIN + GROUP BY departments."
+    },
+    {
+      "id": "ca_ans_09",
+      "question": "What is the total revenue from all completed sales?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'What is the total revenue from all completed sales?' is clear because it directly maps to a SQL query. The term 'total revenue' can be calculated by summing the product of 'quantity' and 'unit_price' from the 'sales' table, filtered by 'status' being 'completed'. The schema provides all necessary columns to perform this calculation without ambiguity.",
+      "original_rationale": "SUM(quantity * unit_price * (1-discount_percent/100)) WHERE status='completed'."
+    },
+    {
+      "id": "ca_ans_10",
+      "question": "Which customer has placed the most completed orders?",
+      "original_hitl": false,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Which customer has placed the most completed orders?' is ambiguous because the schema does not explicitly define 'completed orders.' The 'sales' table includes a 'status' column, but without knowing the possible values for 'status,' it's unclear how to identify 'completed' orders. Additionally, the query does not specify whether 'most' refers to the number of orders or the total value of orders. Therefore, human intervention is needed to clarify these aspects.",
+      "original_rationale": "JOIN sales + customers GROUP BY customer ORDER BY count DESC LIMIT 1."
+    },
+    {
+      "id": "ca_ans_11",
+      "question": "List all products that currently have zero inventory anywhere.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query is clear as it directly maps to a SQL query that checks for products with zero inventory across all locations. The schema provides the necessary tables and columns to determine this: the 'products' table for product details and the 'inventory' table for checking quantities. The query can be constructed to find products where the sum of quantities across all locations is zero, making the question unambiguous.",
+      "original_rationale": "GROUP BY product, SUM(quantity) = 0."
+    },
+    {
+      "id": "ca_ans_12",
+      "question": "Show each employee along with the name of the department they belong to.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query is clear as it directly maps to a SQL query that joins the 'employees' table with the 'departments' table using the 'department_id' column. The request specifies the need to display each employee along with their respective department name, which can be uniquely determined from the schema provided.",
+      "original_rationale": "JOIN on department_id."
+    },
+    {
+      "id": "ca_ans_13",
+      "question": "How many active projects exist?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'How many active projects exist?' is clear because it directly maps to the 'projects' table, specifically filtering by the 'status' column to identify active projects. The schema provides a 'status' column in the 'projects' table, which can be used to determine the number of active projects without ambiguity.",
+      "original_rationale": "status='active'."
+    },
+    {
+      "id": "ca_ans_14",
+      "question": "List the top 3 products by total quantity sold in completed sales.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query is clear as it specifies the criteria for 'top' products, which is 'total quantity sold' in 'completed sales'. This can be directly mapped to the 'sales' table where 'status' is 'completed', and the 'quantity' field can be aggregated to determine the top 3 products. The query does not have multiple interpretations or require additional context.",
+      "original_rationale": "SUM(quantity), ORDER BY DESC LIMIT 3."
+    },
+    {
+      "id": "ca_ans_15",
+      "question": "Show every warehouse's name and city.",
+      "original_hitl": false,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'Show every warehouse's name and city' is ambiguous because the schema does not explicitly define a 'warehouse' entity. The closest match is the 'locations' table, which includes a 'name' and 'city' column. However, the 'type' column in the 'locations' table could potentially differentiate between different types of locations (e.g., warehouse, office, store), but this is not specified in the query. Without clarification on what constitutes a 'warehouse,' the query cannot be mapped directly to a SQL query.",
+      "original_rationale": "type='warehouse' on locations."
+    },
+    {
+      "id": "ca_ans_16",
+      "question": "What is the most expensive product by price?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'What is the most expensive product by price?' is clear because it directly maps to the 'products' table, specifically to the 'price' column. The query seeks the product with the highest value in this column, which is a straightforward request without ambiguity or need for additional context.",
+      "original_rationale": "ORDER BY price DESC LIMIT 1."
+    },
+    {
+      "id": "ca_ans_17",
+      "question": "How many employees were hired in 2023?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'How many employees were hired in 2023?' is clear because it directly maps to a SQL query. The question specifies the year 2023, which can be used as a filter on the 'hire_date' column in the 'employees' table. There is no ambiguity in the interpretation of the question, as it asks for a count of employees based on a specific hiring year.",
+      "original_rationale": "strftime('%Y', hire_date) = '2023'."
+    },
+    {
+      "id": "ca_ans_18",
+      "question": "What is the total budget across all departments?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'What is the total budget across all departments?' is clear because it directly maps to the 'budget' column in the 'departments' table. The question specifies the aggregation of the budget across all departments, which can be achieved by summing the 'budget' column. There is no ambiguity or need for additional context to interpret the query.",
+      "original_rationale": "SUM(budget) on departments."
+    },
+    {
+      "id": "ca_ans_19",
+      "question": "List each category name and the number of products in it.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query is clear as it directly maps to a SQL query. The request is to list each category name and count the number of products associated with each category. This can be achieved by joining the 'categories' and 'products' tables on 'category_id' and using a GROUP BY clause on 'category_id' to count the products.",
+      "original_rationale": "LEFT JOIN categories + products, GROUP BY."
+    },
+    {
+      "id": "ca_ans_20",
+      "question": "Show each employee's first name, last name, and their manager's full name.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query is clear because it directly maps to the 'employees' table, where each employee's first and last name can be retrieved. The manager's full name can be obtained by joining the 'employees' table on the 'manager_id' field, which refers back to the 'id' field in the same table. This allows for the retrieval of the manager's first and last name, making the query straightforward and unambiguous.",
+      "original_rationale": "Self-join on employees via manager_id."
+    },
+    {
+      "id": "ca_amb_01",
+      "question": "Who earns the most?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The question 'Who earns the most?' is ambiguous because it could refer to the employee with the highest salary or the employee who generates the most revenue through sales. The schema provides salary information in the employees table and sales data in the sales table, leading to multiple valid interpretations.",
+      "original_rationale": "'Earns' could mean salary (employees), or revenue generated (sales). Also unclear if looking for person or role."
+    },
+    {
+      "id": "ca_amb_02",
+      "question": "What is the total?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'What is the total?' is ambiguous because it lacks specificity. The term 'total' could refer to various sums across different tables and columns, such as total budget, total salary, total sales, total inventory quantity, etc. Without additional context or clarification, it is impossible to determine which specific total the user is interested in.",
+      "original_rationale": "Total of what? Revenue, employees, budget, inventory?"
+    },
+    {
+      "id": "ca_amb_03",
+      "question": "Show the top customers.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show the top customers' is ambiguous because it does not specify the criteria for determining 'top' customers. This could refer to customers with the highest total sales, highest number of purchases, highest credit limit, or other metrics. Without additional context or criteria, multiple valid interpretations exist.",
+      "original_rationale": "Top by what? Count, revenue, recency, credit limit?"
+    },
+    {
+      "id": "ca_amb_04",
+      "question": "How are we performing?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The question 'How are we performing?' is ambiguous because it lacks specificity and could refer to various metrics across different tables. It could relate to sales performance, employee productivity, project progress, or financial metrics like budget utilization. Without additional context or filters, it is impossible to map this question directly to a single SQL query.",
+      "original_rationale": "No metric, no time window, no entity."
+    },
+    {
+      "id": "ca_amb_05",
+      "question": "Give me the best product.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Give me the best product' is ambiguous because 'best' is not clearly defined. It could refer to the product with the highest sales, best customer reviews, highest profit margin, or any other metric. Without additional context or criteria, it is impossible to map this query directly to a specific SQL query.",
+      "original_rationale": "Best by units sold, revenue, margin, rating?"
+    },
+    {
+      "id": "ca_amb_06",
+      "question": "Show recent activity.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show recent activity' is ambiguous because 'recent activity' is not clearly defined within the context of the database schema. It could refer to recent sales, recent project assignments, recent employee hires, or any other recent changes across multiple tables. Without additional context or filters, it is impossible to map this query directly to a specific SQL query.",
+      "original_rationale": "Which activity? Sales, assignments, hires? What counts as recent?"
+    },
+    {
+      "id": "ca_amb_07",
+      "question": "List the big departments.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'List the big departments' is ambiguous because the term 'big' is not clearly defined. It could refer to departments with the largest budget, the most employees, or the largest physical location. Without additional context or criteria, the query cannot be mapped directly to a specific SQL query.",
+      "original_rationale": "Big by headcount, budget, number of projects?"
+    },
+    {
+      "id": "ca_amb_08",
+      "question": "How much did we spend last quarter?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The question 'How much did we spend last quarter?' is ambiguous because it does not specify the type of spending or the relevant table. The database schema includes multiple tables with potential spending-related columns, such as 'budget' in the 'departments' and 'projects' tables, 'cost' in the 'products' table, and 'unit_price' in the 'sales' table. Additionally, 'last quarter' is a time frame that requires clarification on which specific dates it covers. Without further context or specification, the query cannot be mapped directly to a single SQL query.",
+      "original_rationale": "Spend is not a modeled concept \u2014 departments have budgets, projects have budgets, employees have salaries, products have cost."
+    },
+    {
+      "id": "ca_amb_09",
+      "question": "Find the manager.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Find the manager' is ambiguous because it does not specify which manager is being referred to. The database schema includes a 'manager_id' in the 'employees' table, but without additional context or filters, it is unclear whether the user wants to find a specific manager, all managers, or managers of a particular department or project. Therefore, the query requires further clarification.",
+      "original_rationale": "Which manager? Any specific manager? Top-of-chain? By department?"
+    },
+    {
+      "id": "ca_amb_10",
+      "question": "What's underperforming?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'What's underperforming?' is ambiguous because 'underperforming' is not clearly defined in the context of the database schema. It could refer to various metrics such as low sales, projects not meeting deadlines, departments exceeding budgets, or products with low inventory turnover. Without additional context or specific criteria, the query cannot be mapped directly to a single SQL query.",
+      "original_rationale": "No entity, no metric, no threshold."
+    },
+    {
+      "id": "ca_amb_11",
+      "question": "Show me the most important customer.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show me the most important customer' is ambiguous because 'most important' is not clearly defined in the context of the database schema. It could refer to the customer with the highest sales, the most frequent purchases, the highest credit limit, or another metric. Without additional context or criteria, the query cannot be mapped directly to a specific SQL query.",
+      "original_rationale": "Importance can mean revenue, volume, recency, credit limit."
+    },
+    {
+      "id": "ca_amb_12",
+      "question": "Show employee productivity.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show employee productivity' is ambiguous because 'productivity' is not clearly defined in the schema. It could refer to various metrics such as hours worked, projects completed, sales made, or any other performance indicator. Without a specific definition or context, the query cannot be mapped directly to a SQL query.",
+      "original_rationale": "Productivity is not a column; could mean sales count, revenue per employee, hours allocated."
+    },
+    {
+      "id": "ca_amb_13",
+      "question": "What are the trends?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'What are the trends?' is ambiguous because it lacks specificity and context. The term 'trends' could refer to various aspects such as sales trends, hiring trends, budget trends, or product trends, among others. Without additional information or context, it is impossible to map this query directly to a specific SQL query or database column. Therefore, human intervention is needed to clarify the user's intent.",
+      "original_rationale": "Trends of what, over what timeframe?"
+    },
+    {
+      "id": "ca_amb_14",
+      "question": "How expensive is the company?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The question 'How expensive is the company?' is ambiguous because it does not clearly map to any specific column or metric in the database schema. The term 'expensive' could refer to various aspects such as the company's total expenses, the costliest product, or even the highest salary paid to an employee. Without additional context or clarification, it is impossible to determine the exact intent of the question.",
+      "original_rationale": "Total salaries? Total budgets? Total product cost? Market valuation (not in DB)?"
+    },
+    {
+      "id": "ca_amb_15",
+      "question": "Give me the summary.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'Give me the summary.' is ambiguous because it lacks specificity and context. The term 'summary' could refer to a summary of any number of entities or metrics within the database, such as a summary of sales, employee details, department budgets, or project statuses. Without additional context or clarification, it is impossible to map this query directly and uniquely to a SQL query.",
+      "original_rationale": "Summary of what entity?"
+    },
+    {
+      "id": "ca_amb_16",
+      "question": "Who are the leaders?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Who are the leaders?' is ambiguous because the term 'leaders' is not clearly defined within the context of the database schema. It could refer to department managers, project leaders, or even top-performing employees, none of which are explicitly labeled as 'leaders' in the schema. Without additional context or clarification, multiple interpretations are possible, necessitating human intervention to accurately map the query to a SQL statement.",
+      "original_rationale": "Managers? Top performers? Highest paid?"
+    },
+    {
+      "id": "ca_amb_17",
+      "question": "Show good customers.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show good customers' is ambiguous because 'good' is not clearly defined in the context of the database schema. It could refer to customers with high credit limits, frequent purchases, high total sales, or other criteria. Without a specific definition of 'good,' the query cannot be directly mapped to a SQL query.",
+      "original_rationale": "Good by spend, by frequency, by credit limit, by recency?"
+    },
+    {
+      "id": "ca_amb_18",
+      "question": "Which products are low?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Which products are low?' is ambiguous because 'low' is not clearly defined. It could refer to low inventory levels, low prices, or low sales. Without additional context or specification, it is unclear which aspect of 'low' the user is referring to.",
+      "original_rationale": "Low on inventory, low price, low sales?"
+    },
+    {
+      "id": "ca_amb_19",
+      "question": "How much revenue did sales make?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'How much revenue did sales make?' is ambiguous because it does not specify a time frame or any filters to narrow down the sales data. Additionally, 'revenue' could be interpreted in different ways, such as total sales amount or net revenue after discounts. The schema provides multiple tables that could relate to sales, such as 'sales' and 'products', but without further specification, the query cannot be mapped directly to a unique SQL query.",
+      "original_rationale": "No time window. Could be ever, this year, last month. Borderline-ambiguous but likely needs clarification if pipeline is strict."
+    },
+    {
+      "id": "ca_amb_20",
+      "question": "Show me the best people.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show me the best people' is ambiguous because 'best' is not clearly defined. It could refer to employees with the highest salary, those with the most projects, highest sales, or other criteria. The database schema does not provide a direct mapping for 'best people,' necessitating human intervention to clarify the user's intent.",
+      "original_rationale": "Best at what? Sales? Tenure? Not defined."
+    },
+    {
+      "id": "sc_ans_01",
+      "question": "List all employees and their hire dates.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'List all employees and their hire dates' is clear because it directly maps to the 'employees' table, specifically to the 'first_name', 'last_name', and 'hire_date' columns. There is no ambiguity or need for additional context to interpret the request, as it specifies exactly what information is needed and from which table.",
+      "original_rationale": "Single-table SELECT."
+    },
+    {
+      "id": "sc_ans_02",
+      "question": "How many projects are active?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'How many projects are active?' is clear because it directly maps to the 'projects' table, specifically the 'status' column. The term 'active' can be assumed to refer to the 'status' of the projects, which is a common attribute in project management contexts. Therefore, the query can be translated into a SQL query that counts the number of projects where the 'status' is 'active', without any ambiguity or need for additional clarification.",
+      "original_rationale": "COUNT with status filter."
+    },
+    {
+      "id": "sc_ans_03",
+      "question": "For each project, how many employees are assigned to it?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'For each project, how many employees are assigned to it?' is clear because it directly maps to a SQL query that counts the number of employees assigned to each project. The schema provides a clear relationship between projects and employees through the 'project_assignments' table, which links 'project_id' to 'employee_id'. Therefore, the query can be executed without ambiguity.",
+      "original_rationale": "GROUP BY project_id on project_assignments."
+    },
+    {
+      "id": "sc_ans_04",
+      "question": "Which department has the largest budget?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'Which department has the largest budget?' is clear because it directly maps to a single column in the database schema. The 'departments' table contains a 'budget' column, which can be used to determine the department with the largest budget. There is no ambiguity in the query as it specifies the exact metric (budget) and the entity (department) to be evaluated.",
+      "original_rationale": "ORDER BY budget DESC LIMIT 1."
+    },
+    {
+      "id": "sc_ans_05",
+      "question": "List employees hired after 2020-01-01.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'List employees hired after 2020-01-01' is clear because it directly maps to a SQL query using the 'employees' table. The query specifies a clear condition (hire_date > '2020-01-01') and does not involve any ambiguous terms or require additional context to interpret. The schema provides all necessary columns to fulfill this request without ambiguity.",
+      "original_rationale": "Date literal filter."
+    },
+    {
+      "id": "sc_ans_06",
+      "question": "Count the total number of project assignments.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'Count the total number of project assignments' is clear because it directly maps to counting the rows in the 'project_assignments' table. The query does not require additional context or clarification, as it specifically asks for the total number of assignments, which corresponds to the number of entries in the 'project_assignments' table.",
+      "original_rationale": "COUNT(*) on project_assignments."
+    },
+    {
+      "id": "sc_ans_07",
+      "question": "Show each project's name along with its department name.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query is clear because it directly maps to a SQL query that joins the 'projects' table with the 'departments' table using the 'department_id' column. The request for 'each project's name' corresponds to the 'project_name' column in the 'projects' table, and 'its department name' corresponds to the 'department_name' column in the 'departments' table. There are no multiple interpretations or missing filters in the query.",
+      "original_rationale": "JOIN on department_id."
+    },
+    {
+      "id": "sc_amb_01",
+      "question": "What is the budget?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query \"What is the budget?\" is ambiguous because the database schema contains multiple budget columns across different tables (departments and projects). Without additional context or filters, it is unclear which budget the user is referring to. Therefore, human intervention is needed to clarify the user's intent.",
+      "original_rationale": "Department budget? Project budget? Which one?"
+    },
+    {
+      "id": "sc_amb_02",
+      "question": "Show me the best employees.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show me the best employees' is ambiguous because 'best' is not clearly defined. It could refer to employees with the highest salary, those with the most projects, longest tenure, or highest performance ratings (which are not present in the schema). Without a specific criterion, the query cannot be mapped directly to a SQL query.",
+      "original_rationale": "Best by tenure? Project count? Not defined in schema."
+    },
+    {
+      "id": "sc_amb_03",
+      "question": "Tell me about engineering.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Tell me about engineering' is ambiguous because 'engineering' could refer to a department, a project, or even a role within the projects. The database schema includes tables for employees, departments, and projects, but it is unclear which aspect of 'engineering' the user is interested in. Without additional context or specification, it is impossible to determine whether the user wants information about the engineering department, projects related to engineering, or employees with engineering roles. Therefore, human intervention is needed to clarify the user's intent.",
+      "original_rationale": "Which aspect? Budget, headcount, projects, employees?"
+    },
+    {
+      "id": "sc_amb_04",
+      "question": "List the heavy projects.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The term 'heavy projects' is ambiguous as it is not clearly defined in the schema. It could refer to projects with a large budget, projects with many hours allocated, or projects with a long duration. Without a specific definition, the query cannot be mapped directly to a SQL query.",
+      "original_rationale": "Heavy by hours allocated, budget, team size?"
+    },
+    {
+      "id": "sc_amb_05",
+      "question": "Show project costs.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Show project costs' is ambiguous because it does not specify which aspect of project costs is being referred to. The database schema includes a 'budget' column in the 'projects' table, which could be interpreted as the cost. However, 'costs' could also refer to the sum of salaries for employees working on the project, or other expenses not explicitly listed in the schema. Without further clarification, the query cannot be mapped directly to a single SQL query.",
+      "original_rationale": "Cost could mean project.budget, or SUM(hours_allocated) from assignments."
+    },
+    {
+      "id": "sc_amb_06",
+      "question": "Who is busy?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'Who is busy?' is ambiguous because 'busy' is not clearly defined in the context of the database schema. It could refer to employees with the most project assignments, those with the highest hours allocated, or even those with the most recent hire date. Without a specific definition of 'busy,' the query cannot be mapped directly to a SQL query.",
+      "original_rationale": "Busy = most assignments? Most hours? Multiple projects?"
+    },
+    {
+      "id": "sc_amb_07",
+      "question": "What's the workload?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The query 'What's the workload?' is ambiguous because 'workload' is not a clearly defined concept within the given schema. It could refer to various interpretations such as the number of hours allocated to employees, the number of projects an employee is assigned to, or even the budget allocation for projects. Without additional context or clarification, it is not possible to map this query directly to a specific SQL query.",
+      "original_rationale": "Per employee? Per project? Per department?"
+    },
+    {
+      "id": "sec_ans_01",
+      "question": "How many SEC submissions are in the database?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user question 'How many SEC submissions are in the database?' is clear because it directly maps to counting the number of entries in the 'submissions' table. The term 'SEC submissions' aligns with the entries in the 'submissions' table, and there is no ambiguity or need for additional filters or specifications.",
+      "original_rationale": "COUNT(*) on submissions."
+    },
+    {
+      "id": "sec_ans_02",
+      "question": "List all distinct form types in the submissions table.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'List all distinct form types in the submissions table' is clear because it directly maps to a specific column in the 'submissions' table, namely the 'form' column. The request for 'distinct form types' is unambiguous and requires a straightforward SQL query to retrieve unique values from this column.",
+      "original_rationale": "SELECT DISTINCT form."
+    },
+    {
+      "id": "sec_ans_03",
+      "question": "How many filings were made in fiscal year 2022?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user question 'How many filings were made in fiscal year 2022?' is clear because it directly maps to the 'submissions' table, specifically to the 'fy' (fiscal year) column. The question asks for a count of filings, which can be determined by counting the number of entries in the 'submissions' table where 'fy' equals 2022. There are no multiple interpretations or missing filters, making the query straightforward.",
+      "original_rationale": "COUNT(*) WHERE fy = 2022."
+    },
+    {
+      "id": "sec_ans_04",
+      "question": "What are the five most common SIC codes in submissions?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'What are the five most common SIC codes in submissions?' is clear because it directly maps to a SQL query that involves counting the occurrences of each SIC code in the 'submissions' table and then selecting the top five based on frequency. The term 'SIC codes' clearly corresponds to the 'sic' column in the 'submissions' table, and the request for the 'five most common' provides a specific filter for the query.",
+      "original_rationale": "GROUP BY sic ORDER BY count DESC LIMIT 5."
+    },
+    {
+      "id": "sec_ans_05",
+      "question": "How many companies filed form 10-K?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'How many companies filed form 10-K?' is clear because it directly maps to a SQL query. The question specifies the form type '10-K', which corresponds to the 'form' column in the 'submissions' table. The query requires counting distinct companies, which can be identified by the 'cik' column, that have filed this specific form. There is no ambiguity in the interpretation or the required data retrieval.",
+      "original_rationale": "COUNT(DISTINCT cik) WHERE form='10-K'."
+    },
+    {
+      "id": "sec_ans_06",
+      "question": "List all tags where the datatype is monetary.",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query 'List all tags where the datatype is monetary' is clear because it directly maps to a SQL query that can be executed on the 'tags' table. The query specifies the 'datatype' column and requests all 'tags' where this column has the value 'monetary'. There is no ambiguity or need for additional context to interpret the question.",
+      "original_rationale": "SELECT * FROM tags WHERE datatype='monetary'."
+    },
+    {
+      "id": "sec_ans_07",
+      "question": "How many numbers are associated with adsh = '0001193125-22-017125'?",
+      "original_hitl": false,
+      "reannotated_hitl": false,
+      "reasoning": "The user query is clear because it directly specifies the table 'numbers' and the column 'adsh' with a specific value. The question asks for a count of entries in the 'numbers' table where 'adsh' matches '0001193125-22-017125', which maps directly to a SQL query without ambiguity.",
+      "original_rationale": "Exact-match literal."
+    },
+    {
+      "id": "sec_amb_01",
+      "question": "Show me the biggest filings.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'Show me the biggest filings' is ambiguous because 'biggest' is not clearly defined within the context of the database schema. It could refer to the largest number of pages, the highest monetary value, the most recent filings, or another metric not specified in the query. Without additional context or clarification, multiple interpretations are possible, necessitating human intervention to determine the user's intent.",
+      "original_rationale": "Biggest by numbers count, by filed date, by company size (not in DB)?"
+    },
+    {
+      "id": "sec_amb_02",
+      "question": "Which company has the best numbers?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'Which company has the best numbers?' is ambiguous because it lacks specificity in several areas. The term 'best numbers' is not clearly defined and could refer to various metrics such as revenue, profit, or any other financial indicator. Additionally, the database schema does not have a direct mapping for 'best numbers,' making it unclear which column or combination of columns should be used to determine the answer. Therefore, human intervention is needed to clarify the user's intent.",
+      "original_rationale": "Best by which financial tag? Numbers table has many values per filing."
+    },
+    {
+      "id": "sec_amb_03",
+      "question": "Show me significant events.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'Show me significant events' is ambiguous because it does not clearly map to any specific column or set of columns in the provided database schema. The term 'significant events' is not defined within the schema, and it could refer to various interpretations such as changes in company details, financial milestones, or other unspecified events. Without additional context or clarification, the query cannot be directly translated into a SQL query.",
+      "original_rationale": "No 'events' or 'significant' column."
+    },
+    {
+      "id": "sec_amb_04",
+      "question": "Give me a summary of submissions.",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'Give me a summary of submissions' is ambiguous because it does not specify what aspects of the submissions need to be summarized. The database schema contains multiple columns related to submissions, such as 'adsh', 'cik', 'name', 'countryba', 'form', 'period', etc. Without further clarification, it is unclear whether the user wants a summary based on the number of submissions, the types of forms submitted, the geographical distribution, or any other specific detail. Therefore, human intervention is needed to clarify the user's intent.",
+      "original_rationale": "What shape of summary? By year, form, sic, country?"
+    },
+    {
+      "id": "sec_amb_05",
+      "question": "What are the key metrics?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'What are the key metrics?' is ambiguous because 'key metrics' is not clearly defined or mapped to specific columns in the database schema. The term 'key metrics' could refer to various data points such as financial figures, performance indicators, or other significant values, none of which are explicitly labeled as 'key metrics' in the schema. Without additional context or specification, it is unclear which columns or tables should be queried to fulfill this request.",
+      "original_rationale": "'Key' metrics undefined; numbers table has thousands of tags."
+    },
+    {
+      "id": "sec_amb_06",
+      "question": "Which tags are important?",
+      "original_hitl": true,
+      "reannotated_hitl": true,
+      "reasoning": "The user query 'Which tags are important?' is ambiguous because it lacks specificity and context. The term 'important' is subjective and can be interpreted in various ways, such as tags with the highest frequency, tags with the most significant financial impact, or tags most frequently used in reports. Without additional criteria or context, it is unclear how to map this question to a specific SQL query.",
+      "original_rationale": "Importance undefined in schema."
+    }
+  ]
+}

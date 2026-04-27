@@ -41,7 +41,8 @@ DISAMBIGUATION_SCHEMA = {
         "ambiguity_reasons": {"type": "array", "items": {"type": "string"}},
         "suggested_clarification": {"type": "string"}
     },
-    "required": ["confidence", "is_ambiguous", "detected_tables", "detected_intent"]
+    "required": ["confidence", "is_ambiguous", "detected_tables", "detected_intent", "ambiguity_reasons", "suggested_clarification"],
+    "additionalProperties": False
 }
 
 SQL_GENERATION_SCHEMA = {
@@ -50,7 +51,8 @@ SQL_GENERATION_SCHEMA = {
         "sql_queries": {"type": "array", "items": {"type": "string"}},
         "reasoning": {"type": "string"}
     },
-    "required": ["sql_queries"]
+    "required": ["sql_queries", "reasoning"],
+    "additionalProperties": False
 }
 
 CONSISTENCY_CHECK_SCHEMA = {
@@ -64,7 +66,8 @@ CONSISTENCY_CHECK_SCHEMA = {
             "enum": ["proceed", "clarify", "retry"]
         }
     },
-    "required": ["are_equivalent", "confidence", "recommendation"]
+    "required": ["are_equivalent", "confidence", "differences", "recommendation"],
+    "additionalProperties": False
 }
 
 DRAFT_SQL_SCHEMA = {
@@ -73,7 +76,8 @@ DRAFT_SQL_SCHEMA = {
         "draft_sql": {"type": "string"},
         "query_skeleton": {"type": "string"}
     },
-    "required": ["draft_sql", "query_skeleton"]
+    "required": ["draft_sql", "query_skeleton"],
+    "additionalProperties": False
 }
 
 
@@ -284,15 +288,16 @@ def disambiguate_node(state: AgentState, config: PipelineConfig, llm_client=None
     user_feedback = state.get('user_feedback', '')
     full_schema = load_schema_catalog()
     
-    # Schema Linking: Retrieve only relevant tables for this query
+    # Schema Linking: Retrieve only relevant tables for this query.
+    # IMPORTANT: The benchmark harness frequently switches DBs (Spider/AmbiQT).
+    # SchemaStore must be (re)indexed for the *current* DB, not just once per process.
     # Falls back to full schema if linking fails (needed for LLM context)
     try:
         schema_store = get_schema_store()
-        # Ensure schema is indexed
-        if schema_store.get_stats().get('indexed_tables', 0) == 0:
-            schema_store.index_schema(full_schema)
-        
-        relevant_tables = schema_store.retrieve_relevant_tables(user_query, n=5)
+        schema_store.index_schema(full_schema)
+
+        db_name = full_schema.get('database_name')
+        relevant_tables = schema_store.retrieve_relevant_tables(user_query, n=5, db_name=db_name)
         if relevant_tables:
             schema = filter_schema_to_tables(full_schema, relevant_tables)
             print(f"Schema Linking: Retrieved {len(relevant_tables)} relevant tables: {relevant_tables}")
@@ -537,6 +542,7 @@ def generate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None
     few_shot_examples = state.get('few_shot_examples', [])
     error_context = state.get('debug_analysis', '')
     num_variations = config.num_sql_variations
+    confidence_score = state.get('confidence_score', 0.0)
     
     # Draft-SQL Backtracing: re-prune schema using tables from draft
     draft_sql = state.get('draft_sql', '')
@@ -572,6 +578,20 @@ PREVIOUS ERROR (Self-Correction Required):
 Learn from this error and generate corrected SQL that avoids this issue.
 """
 
+    clear_cutoff = float(getattr(config, "disambiguation_clear_confidence", 0.70))
+    if confidence_score >= clear_cutoff:
+        ambiguity_guidelines = """- The first query should be your single best interpretation of the question.
+- Subsequent queries should be PURELY SYNTACTIC VARIANTS of the first query (e.g. using different aliases, different order of WHERE clauses, etc).
+- Do NOT hallucinate alternative semantic interpretations since the question is unambiguous."""
+    else:
+        ambiguity_guidelines = """- The first query should be your single best interpretation of the question.
+- Subsequent queries should explore PLAUSIBLE ALTERNATIVE INTERPRETATIONS of any
+  ambiguity in the question (different column choices, different join paths,
+  different aggregation level). They are NOT required to be semantically
+  equivalent. We use disagreement between them as an ambiguity signal.
+- If the question is genuinely unambiguous, return slight syntactic variants
+  of the same query so the candidate set is consistent."""
+
     prompt = f"""You are an expert SQL developer. Generate {num_variations} candidate SQL queries for the following question.
 
 DATABASE SCHEMA:
@@ -591,13 +611,7 @@ Return a JSON object with this structure:
 }}
 
 Guidelines for the candidate set:
-- The first query should be your single best interpretation of the question.
-- Subsequent queries should explore PLAUSIBLE ALTERNATIVE INTERPRETATIONS of any
-  ambiguity in the question (different column choices, different join paths,
-  different aggregation level). They are NOT required to be semantically
-  equivalent. We use disagreement between them as an ambiguity signal.
-- If the question is genuinely unambiguous, return slight syntactic variants
-  of the same query so the candidate set is consistent.
+{ambiguity_guidelines}
 - Use proper table and column names from the schema.
 - Handle JOINs appropriately using foreign key relationships.
 - Use appropriate aggregations (COUNT, SUM, AVG, etc.) based on the query intent.
@@ -868,10 +882,19 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
 
     # ---- 1. Execute every variation in the sandbox -----------------------
     try:
-        from src.sandbox.executor import execute_sql as _execute_sql
+        from src.sandbox.executor import execute_sql as _execute_sql, set_execution_mode as _set_execution_mode
     except Exception as e:
         _execute_sql = None
+        _set_execution_mode = None
         print(f"Sandbox unavailable for execution-entropy check: {e}")
+
+    # Reassert benchmark execution context when provided. This guards against
+    # mode drift in long/cloud runs where other components may initialize
+    # executor state in a different process context.
+    db_id = state.get('db_id')
+    if _set_execution_mode is not None and db_id:
+        dataset = str(state.get('dataset') or 'spider')
+        _set_execution_mode('benchmark', str(db_id), dataset)
 
     executions: List[Dict[str, Any]] = []
     for idx, sql in enumerate(sqls):
@@ -924,6 +947,7 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
     result_clusters.sort(key=lambda c: c["size"], reverse=True)
 
     exec_entropy = _shannon_entropy_bits([c["size"] for c in result_clusters])
+    n_success = sum(1 for e in executions if e["success"])
 
     # ---- 3. Cluster by structural skeleton -------------------------------
     skeleton_buckets: Dict[str, List[int]] = {}
@@ -936,7 +960,27 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
     ]
     skeleton_clusters.sort(key=lambda c: c["size"], reverse=True)
 
-    semantic_entropy = _shannon_entropy_bits([c["size"] for c in skeleton_clusters])
+    # Full-candidate structural entropy (for structural-divergence / AmbiQT-style checks).
+    semantic_entropy_all = _shannon_entropy_bits([c["size"] for c in skeleton_clusters])
+
+    # Gating + composite: count only *successful* executions for skeleton diversity.
+    # Failed candidates (syntax errors, wrong table names) must not inflate
+    # semantic entropy toward log2(k) when one valid SQL runs.
+    skeleton_succ: Dict[str, List[int]] = {}
+    for e in executions:
+        if not e["success"]:
+            continue
+        skeleton_succ.setdefault(e["skeleton"], []).append(e["index"])
+    skel_succ_clusters = [
+        {"skeleton": s, "size": len(idxs), "indices": idxs,
+         "sqls": [executions[i]["sql"] for i in idxs]}
+        for s, idxs in skeleton_succ.items()
+    ]
+    skel_succ_clusters.sort(key=lambda c: c["size"], reverse=True)
+    if n_success > 0:
+        semantic_entropy = _shannon_entropy_bits([c["size"] for c in skel_succ_clusters])
+    else:
+        semantic_entropy = semantic_entropy_all
 
     # ---- 4. Pick winner via execution-cluster majority vote --------------
     cached_execution: Optional[Dict[str, Any]] = None
@@ -962,7 +1006,6 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
     exec_thresh = float(thresholds.get("execution_entropy_max", 0.6))
     sem_thresh = float(thresholds.get("semantic_entropy_max", 1.2))
 
-    n_success = sum(1 for e in executions if e["success"])
     # Execution-based agreement is a much stronger signal than skeleton-based
     # diversity. Skeleton diversity *without* execution disagreement is just
     # paraphrase ("COUNT(*)" vs "COUNT(id)" returning the same number) and
@@ -984,7 +1027,7 @@ def consistency_check_node(state: AgentState, config: PipelineConfig, llm_client
         result_clusters=result_clusters,
         skeleton_clusters=skeleton_clusters,
         execution_entropy=exec_entropy,
-        semantic_entropy=semantic_entropy,
+        semantic_entropy=semantic_entropy_all,
         n_success=n_success,
         n_sqls=len(sqls),
         thresholds=thresholds,
@@ -1169,7 +1212,15 @@ def evaluate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None
     })
 
     # LLM Experts
-    if llm_client:
+    # Skip when execution consistency already established high confidence:
+    # if all k candidates agreed (exec_entropy=0) and composite_confidence >= 0.80,
+    # the SQL is almost certainly structurally correct; firing 2 extra LLM calls
+    # would be expensive and the minor penalties they return can't flip the gate.
+    exec_entropy = float(state.get('execution_entropy', 1.0) or 1.0)
+    composite_conf = float(state.get('composite_confidence', 0.0) or 0.0)
+    skip_llm_experts = (exec_entropy == 0.0 and composite_conf >= 0.80)
+
+    if llm_client and not skip_llm_experts:
         expert_schema = {
             "type": "object",
             "properties": {
@@ -1177,35 +1228,38 @@ def evaluate_sql_node(state: AgentState, config: PipelineConfig, llm_client=None
                 "confidence_penalty": {"type": "number"},
                 "reasoning": {"type": "string"}
             },
-            "required": ["is_approved", "confidence_penalty", "reasoning"]
+            "required": ["is_approved", "confidence_penalty", "reasoning"],
+            "additionalProperties": False
         }
 
-        # 3. LLM Expert: Schema & Syntax Validation
-        syntax_prompt = f"""You are a strict SQL Syntax and Schema alignment expert.
-Review the following query exactly as generated against the database schema.
+        # LLM Expert: Schema & Syntax Validation
+        syntax_prompt = f"""You are a SQL Syntax and Schema alignment expert.
+Review the following query against the database schema.
 User Query: "{user_query}"
 Generated SQL: "{sql}"
 Schema Context: {schema_context}
 
 Task: Verify all identifiers (table names, column names) actually exist in the schema. Check for logical impossibilities or obvious type mismatches.
+Penalty scale: 0.0 = flawless, 0.10 = minor style issue, 0.20 = real schema/type error. Do NOT penalise column aliases, valid subqueries, or SQL style choices.
 Return a JSON object with:
 - is_approved (bool)
-- confidence_penalty (float 0.0 to 1.0, e.g. 0.0 for flawless, 0.4 for severe issues)
+- confidence_penalty (float 0.0 to 0.20)
 - reasoning (string explaining your penalty, if any)
 """
-        # 4. LLM Expert: Semantic Logic Expert
-        semantic_prompt = f"""You are a strict Data Analytics Business Logic expert.
-Review the intent of the user's query and compare it to the semantic logic generated in the SQL.
+        # LLM Expert: Semantic Logic Expert
+        semantic_prompt = f"""You are a Data Analytics Business Logic expert.
+Review the intent of the user's query and the semantic logic of the SQL.
 User Query: "{user_query}"
 Generated SQL: "{sql}"
 
-Task: Look for logical oversights like integer vs float division errors, missing explicit GROUP BY variables when aggregating, or incorrect directional sorting.
+Task: Look for genuine logical errors: wrong aggregation direction, missing GROUP BY when required, incorrect JOIN conditions. Do NOT penalise subquery vs LIMIT style differences or column alias choices.
+Penalty scale: 0.0 = correct, 0.10 = minor concern, 0.20 = clear logic error.
 Return a JSON object with:
 - is_approved (bool)
-- confidence_penalty (float 0.0 to 1.0)
+- confidence_penalty (float 0.0 to 0.20)
 - reasoning (string explaining your penalty, if any)
 """
-        
+
         try:
             for prompt_text, expert_name in [(syntax_prompt, "Schema Alignment Expert"), (semantic_prompt, "Semantic Logic Expert")]:
                 llm_resp, _ = llm_client.generate(prompt_text, response_schema=expert_schema)
@@ -1213,22 +1267,34 @@ Return a JSON object with:
                     expert_eval = json.loads(llm_resp)
                 except:
                     expert_eval = _parse_json_from_response(llm_resp)
-                
+
+                # Hard-cap individual LLM expert penalty so stylistic opinions
+                # can't cascade into a hard quality-gate block.
+                raw_penalty = float(expert_eval.get('confidence_penalty', 0.0))
+                capped_penalty = min(raw_penalty, 0.20)
+
                 results.append({
                     'expert': expert_name,
                     'is_approved': expert_eval.get('is_approved', True),
-                    'confidence_penalty': float(expert_eval.get('confidence_penalty', 0.0)),
+                    'confidence_penalty': capped_penalty,
                     'reasoning': expert_eval.get('reasoning', 'No reasoning provided')
                 })
         except Exception as e:
             print(f"MoE LLM Evaluation failed: {e}")
+    elif skip_llm_experts:
+        print(f"MoE: skipping LLM experts (exec_entropy=0, composite_confidence={composite_conf:.2f} >= 0.80)")
+
+
 
     # Aggregate penalties
     for r in results:
         total_penalty += r.get('confidence_penalty', 0.0)
-        
+
     final_confidence = max(0.0, original_confidence - total_penalty)
-    expert_approved = all([r.get('is_approved', True) for r in results])
+    # expert_approved = False only when penalties are severe (>= 0.5).
+    # Minor LLM opinion penalties (e.g. 0.1–0.3) should not block execution;
+    # the composite_confidence gate in the quality_gate_node handles that.
+    expert_approved = total_penalty < 0.5
 
     return {
         'evaluation_results': results,
@@ -1328,6 +1394,50 @@ def debug_node(state: AgentState, config: PipelineConfig, llm_client=None) -> Di
     return {
         'debug_analysis': analysis,
         'retry_count': retry_count + 1
+    }
+
+
+def quality_gate_node(state: AgentState, config: PipelineConfig) -> Dict[str, Any]:
+    """
+    Quality gate node: evaluates all confidence signals and writes the
+    pass/fail decision + reasons into pipeline state.
+
+    Running as a real LangGraph **node** ensures results persist in graph state.
+    The edge function should_execute_or_clarify now reads quality_gate_passed
+    from state instead of doing broken in-place state mutation.
+    """
+    calibration = (config.calibration if hasattr(config, 'calibration') else None) or {}
+    thresholds = calibration.get('thresholds', {}) if isinstance(calibration, dict) else {}
+
+    reasons: List[str] = []
+
+    if not state.get('expert_approved', True):
+        reasons.append('Mixture-of-Experts did not approve the SQL.')
+
+    composite = float(state.get('composite_confidence', state.get('confidence_score', 1.0)))
+    composite_min = float(thresholds.get('composite_confidence_min', 0.70))
+    if composite < composite_min:
+        reasons.append(
+            f'Composite confidence {composite:.2f} < calibrated minimum {composite_min:.2f}.'
+        )
+
+    seq_lp = state.get('sequence_logprob')
+    seq_lp_min = float(thresholds.get('sequence_logprob_min', -10.0))
+    if seq_lp is not None and float(seq_lp) < seq_lp_min:
+        reasons.append(
+            f'Avg token log-prob {float(seq_lp):.2f} < minimum {seq_lp_min:.2f}.'
+        )
+
+    if state.get('confidence_score', 1.0) < config.confidence_threshold:
+        reasons.append(
+            f'Self-reported confidence {state.get("confidence_score", 1.0):.2f} '
+            f'< threshold {config.confidence_threshold:.2f}.'
+        )
+
+    passed = len(reasons) == 0
+    return {
+        'quality_gate_passed': passed,
+        'quality_gate_reasons': reasons,
     }
 
 

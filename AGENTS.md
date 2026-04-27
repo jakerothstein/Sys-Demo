@@ -1,4 +1,4 @@
 # Text-to-SQL R&D Guidelines
-- **Architecture**: LangGraph state machine with LLM nodes returning strictly typed JSON.
+- **Architecture**: LangGraph state machine with LLM nodes returning strictly typed JSON. Features an **Adaptive Prompting Architecture**: Disambiguation confidence is passed to the SQL generator. High-confidence queries only generate syntactic variants, bypassing forced hallucinated execution entropy to reduce False Positives. The system relies heavily on `self_reported` confidence (65% weight).
 - **Rules**: Never modify the `src/sandbox/executor.py` execution boundaries.
-- **Testing**: Any change to SQL generation logic must be validated using `python scripts/run_benchmark.py`.
+- **Testing**: Any change to SQL generation logic must be validated using `python scripts/run_benchmark.py` and `python scripts/run_ambiguity_benchmark.py`.

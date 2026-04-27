@@ -16,6 +16,8 @@ class AgentState(TypedDict, total=False):
     # Input
     user_query: str
     session_id: str
+    db_id: Optional[str]
+    dataset: Optional[str]
 
     # Disambiguation
     confidence_score: float
@@ -98,7 +100,7 @@ DEFAULT_CALIBRATION: Dict[str, Any] = {
         # (e.g. one variation crashes, others succeed).
         "semantic_entropy_max": 1.55,
         # Minimum composite confidence to accept without HITL.
-        "composite_confidence_min": 0.48,
+        "composite_confidence_min": 0.70,
         # Minimum length-normalized average sequence log-prob (bits).
         # Tokens with very low local probability are a hallucination signal.
         # -10 effectively disables it; tighten after calibration.
@@ -114,10 +116,10 @@ DEFAULT_CALIBRATION: Dict[str, Any] = {
     },
     "weights": {
         # Weighted sum that produces composite_confidence in [0, 1].
-        "self_reported": 0.30,        # disambiguation node's LLM confidence
-        "execution_consistency": 0.40, # 1 - normalized execution entropy
-        "semantic_consistency": 0.15,  # 1 - normalized semantic entropy
-        "logprob": 0.15,               # normalized seq logprob
+        "self_reported": 0.65,        # disambiguation node's LLM confidence
+        "execution_consistency": 0.15, # 1 - normalized execution entropy
+        "semantic_consistency": 0.10,  # 1 - normalized semantic entropy
+        "logprob": 0.10,               # normalized seq logprob
     },
 }
 
@@ -153,7 +155,7 @@ class PipelineConfig:
     confidence_threshold: float = 0.55
     # If the disambiguator reports confidence >= this, skip clarification HITL
     # even when is_ambiguous was true (favors fluent use over caution).
-    disambiguation_clear_confidence: float = 0.85
+    disambiguation_clear_confidence: float = 0.70
     max_retries: int = 3
     num_sql_variations: int = 3
     consistency_similarity_threshold: float = 0.9

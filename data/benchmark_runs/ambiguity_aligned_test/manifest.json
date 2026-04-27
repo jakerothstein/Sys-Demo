@@ -1,0 +1,23 @@
+{
+  "run_id": "ambiguity_aligned_test",
+  "created_utc": "2026-04-25T13:22:46.506999Z",
+  "git_commit": "62597a5b36e035600fc9aa010cadef75b8203dae",
+  "python": "3.14.4 (main, Apr  7 2026, 13:13:20) [Clang 21.0.0 (clang-2100.0.123.102)]",
+  "platform": "Darwin-25.2.0-arm64-arm-64bit-Mach-O",
+  "llm_env": {
+    "OLLAMA_MODEL": "qwen2.5-coder:14b"
+  },
+  "run_config": {
+    "script": "run_ambiguity_benchmark.py",
+    "cli": {
+      "count": 0,
+      "balanced": 0,
+      "db": "",
+      "seed": 13,
+      "resume": false,
+      "server": "",
+      "output": "data/ambiguity_benchmark_results.jsonl",
+      "summary": "data/ambiguity_benchmark_summary.json"
+    }
+  }
+}

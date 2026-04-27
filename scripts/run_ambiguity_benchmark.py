@@ -140,7 +140,7 @@ class LocalRunner:
         self._set_execution_mode = set_execution_mode
         self.config = PipelineConfig(
             confidence_threshold=confidence_threshold,
-            disambiguation_clear_confidence=0.85,
+            disambiguation_clear_confidence=0.70,
             max_retries=max_retries,
             num_sql_variations=num_sql_variations,
             llm_provider=os.environ.get("LLM_PROVIDER", "auto"),

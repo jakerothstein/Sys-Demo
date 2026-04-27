@@ -90,6 +90,67 @@ class AnthropicClient(BaseLLMClient):
         return message.content[0].text, None
 
 
+class OpenAIClient(BaseLLMClient):
+    """OpenAI client."""
+
+    def __init__(self, model: Optional[str] = None, temperature: float = 0.1):
+        self.model = model or os.environ.get("OPENAI_MODEL") or "gpt-4o"
+        self.temperature = temperature
+        self.api_key = os.environ.get("OPENAI_API_KEY")
+        self.client = None
+
+        if self.api_key:
+            try:
+                import openai
+                self.client = openai.OpenAI(api_key=self.api_key)
+            except ImportError:
+                print("openai package not installed. Run: pip install openai")
+
+    def is_available(self) -> bool:
+        return self.client is not None
+
+    def generate(self, prompt: str, response_schema: Optional[Dict[str, Any]] = None, max_tokens: int = 2000, **kwargs) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
+        if not self.is_available():
+            raise RuntimeError("OpenAI client not available. Set OPENAI_API_KEY.")
+
+        # Build message parameters
+        message_params = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "temperature": self.temperature,
+            "messages": [{"role": "user", "content": prompt}],
+            # Enable token logprobs explicitly
+            "logprobs": True,
+            "top_logprobs": 1
+        }
+
+        if response_schema:
+            message_params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_output",
+                    "schema": response_schema,
+                    "strict": True
+                }
+            }
+
+        response = self.client.chat.completions.create(**message_params)
+        content = response.choices[0].message.content
+
+        # Extract token-level log probabilities
+        token_data = []
+        if response.choices[0].logprobs and response.choices[0].logprobs.content:
+            for token_logprob in response.choices[0].logprobs.content:
+                # Convert log probability back to a confidence score (0-1)
+                prob = math.exp(token_logprob.logprob)
+                token_data.append({
+                    "token": token_logprob.token,
+                    "confidence": prob
+                })
+
+        return content, token_data
+
+
 class GoogleClient(BaseLLMClient):
     """Google Gemini client.
 
@@ -453,8 +514,15 @@ def create_llm_client(provider: str = "auto", **kwargs) -> BaseLLMClient:
     # Allow env-var override even when caller passes "auto".
     if provider == "auto":
         env_provider = os.environ.get("LLM_PROVIDER", "").strip().lower()
-        if env_provider in ("anthropic", "google", "ollama"):
+        if env_provider in ("anthropic", "google", "openai", "ollama"):
             provider = env_provider
+
+    if provider == "openai":
+        client = OpenAIClient(**kwargs)
+        if client.is_available():
+            print(f"Using OpenAI (model={client.model})")
+            return client
+        raise RuntimeError("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
 
     if provider == "anthropic":
         client = AnthropicClient(**kwargs)
@@ -485,7 +553,13 @@ def create_llm_client(provider: str = "auto", **kwargs) -> BaseLLMClient:
         )
 
     if provider == "auto":
-        # Try Anthropic first.
+        # Try OpenAI first
+        openai_client = OpenAIClient(**kwargs)
+        if openai_client.is_available():
+            print("Using OpenAI API")
+            return openai_client
+
+        # Try Anthropic next.
         anthropic_client = AnthropicClient(**kwargs)
         if anthropic_client.is_available():
             print("Using Anthropic Claude")

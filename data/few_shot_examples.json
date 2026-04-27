@@ -723,6 +723,110 @@
             "difficulty": "medium",
             "saved_at": "2026-01-06T12:19:23.429547",
             "source": "user_saved"
+        },
+        {
+            "id": "spider_ex_001",
+            "question": "How many singers do we have?",
+            "sql": "SELECT COUNT(*) AS total_singers FROM singer;",
+            "intent": "count",
+            "tables": [
+                "singer"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "spider_ex_002",
+            "question": "Show name, country, and age for all singers ordered by age descending.",
+            "sql": "SELECT Name, Country, Age FROM singer ORDER BY Age DESC;",
+            "intent": "projection_order",
+            "tables": [
+                "singer"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "spider_ex_003",
+            "question": "What is the average, minimum, and maximum age of singers from France?",
+            "sql": "SELECT AVG(Age), MIN(Age), MAX(Age) FROM singer WHERE Country = 'France';",
+            "intent": "aggregation_filter",
+            "tables": [
+                "singer"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "spider_ex_004",
+            "question": "Which countries have singers above age 20?",
+            "sql": "SELECT DISTINCT Country FROM singer WHERE Age > 20;",
+            "intent": "distinct_filter",
+            "tables": [
+                "singer"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "spider_ex_005",
+            "question": "How many concerts happened in 2014 or 2015?",
+            "sql": "SELECT COUNT(*) FROM concert WHERE Year IN ('2014', '2015');",
+            "intent": "count_filter",
+            "tables": [
+                "concert"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "spider_ex_006",
+            "question": "For each stadium, show the number of concerts.",
+            "sql": "SELECT s.Name, COUNT(c.concert_ID) FROM stadium s LEFT JOIN concert c ON s.Stadium_ID = c.Stadium_ID GROUP BY s.Stadium_ID, s.Name;",
+            "intent": "group_join",
+            "tables": [
+                "stadium",
+                "concert"
+            ],
+            "difficulty": "medium"
+        },
+        {
+            "id": "spider_ex_007",
+            "question": "Find stadium names with no concerts.",
+            "sql": "SELECT Name FROM stadium WHERE Stadium_ID NOT IN (SELECT Stadium_ID FROM concert);",
+            "intent": "anti_join",
+            "tables": [
+                "stadium",
+                "concert"
+            ],
+            "difficulty": "medium"
+        },
+        {
+            "id": "spider_ex_008",
+            "question": "List singer names who performed in concerts in 2014.",
+            "sql": "SELECT DISTINCT s.Name FROM singer s JOIN singer_in_concert sic ON s.Singer_ID = sic.Singer_ID JOIN concert c ON sic.concert_ID = c.concert_ID WHERE c.Year = '2014';",
+            "intent": "join_filter",
+            "tables": [
+                "singer",
+                "singer_in_concert",
+                "concert"
+            ],
+            "difficulty": "medium"
+        },
+        {
+            "id": "spider_ex_009",
+            "question": "How many pets weigh more than 10?",
+            "sql": "SELECT COUNT(*) FROM Pets WHERE weight > 10;",
+            "intent": "count_filter",
+            "tables": [
+                "Pets"
+            ],
+            "difficulty": "easy"
+        },
+        {
+            "id": "spider_ex_010",
+            "question": "What is the weight of the youngest dog?",
+            "sql": "SELECT weight FROM Pets WHERE PetType = 'dog' ORDER BY pet_age ASC LIMIT 1;",
+            "intent": "order_limit_filter",
+            "tables": [
+                "Pets"
+            ],
+            "difficulty": "easy"
         }
     ]
 }

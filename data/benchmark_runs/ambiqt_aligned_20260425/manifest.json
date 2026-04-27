@@ -1,0 +1,19 @@
+{
+  "run_id": "ambiqt_aligned_20260425",
+  "created_utc": "2026-04-25T09:56:15.180506Z",
+  "git_commit": "62597a5b36e035600fc9aa010cadef75b8203dae",
+  "python": "3.14.4 (main, Apr  7 2026, 13:13:20) [Clang 21.0.0 (clang-2100.0.123.102)]",
+  "platform": "Darwin-25.2.0-arm64-arm-64bit-Mach-O",
+  "llm_env": {
+    "OLLAMA_MODEL": "qwen2.5-coder:14b"
+  },
+  "run_config": {
+    "script": "run_ambiqt.py",
+    "k": 10,
+    "subtypes": [
+      "col-synonyms",
+      "tbl-synonyms"
+    ],
+    "seed": 13
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "n_total": 50,
+  "n_hitl_triggered": 50,
+  "specificity": 0.0,
+  "compare_to_gold": true,
+  "n_comparable": 0,
+  "execution_accuracy": 0,
+  "n_silent_wrong": 0,
+  "silent_wrong_rate": 0,
+  "pause_stage_counts": {
+    "unknown": 50
+  },
+  "quality_gate_reason_counts": {},
+  "config": {
+    "confidence_threshold": 0.55,
+    "disambiguation_clear_confidence": 0.8,
+    "num_sql_variations": 3,
+    "max_retries": 2,
+    "llm_provider": "openai"
+  },
+  "env": {
+    "LLM_PROVIDER": "openai",
+    "OPENAI_MODEL": "",
+    "OLLAMA_MODEL": "",
+    "GOOGLE_MODEL": ""
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "created_utc": "2026-04-24T11:26:23.145889Z",
+  "git_commit": "eaf3a30eddcb47f13c5fc78af1c70517520b6eef",
+  "python": "3.13.7",
+  "key_files": {
+    "ambiguity_benchmark_summary": {
+      "path": "data/ambiguity_benchmark_summary.json",
+      "present": true,
+      "mtime_epoch": 1776972564
+    },
+    "ambiqt_summary": {
+      "path": "data/ambiqt_summary.json",
+      "present": true,
+      "mtime_epoch": 1776976255
+    },
+    "calibration": {
+      "path": "data/calibration.json",
+      "present": true,
+      "mtime_epoch": 1776988892
+    },
+    "ambiguity_results_jsonl": {
+      "path": "data/ambiguity_benchmark_results.jsonl",
+      "present": true,
+      "mtime_epoch": 1776972564
+    }
+  },
+  "metrics_excerpt": {
+    "ambiguity_overall": {
+      "n": 20,
+      "accuracy": 0.8,
+      "precision_hitl": 0.7142857142857143,
+      "recall_hitl": 1.0,
+      "f1_hitl": 0.8333333333333333
+    },
+    "ambiqt_overall": {
+      "n": 20,
+      "flagged_hitl": 13,
+      "missed": 7,
+      "recall": 0.65
+    }
+  },
+  "reproduce": [
+    "python scripts/run_ambiguity_benchmark.py --paper-run",
+    "python scripts/run_ambiqt.py --paper-run",
+    "python scripts/paper_prep.py plots",
+    "python scripts/paper_prep.py bundle"
+  ]
+}

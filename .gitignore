@@ -6,6 +6,14 @@
 
 # Runtime databases
 /data/benchmark_results.db
+# Large Datasets
+/data/spider/
+/data/bird/
+/data/custom/
+
+# SQLite databases
+*.sqlite
+*.sqlite3
 *.db
 
 # Python cache

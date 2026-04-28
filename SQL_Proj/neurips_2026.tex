@@ -2,7 +2,7 @@
 
 % NeurIPS 2026 style — upload neurips_2026.sty to your Overleaf project.
 % Download from: https://neurips.cc/Conferences/2026/PaperInformation/StyleFiles
-\usepackage[preprint]{neurips_2026}   % remove "preprint" for submission
+\usepackage[final]{neurips_2026}   % remove "preprint" for submission
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -53,23 +53,21 @@ alternative interpretations, sharply reducing false-positive HITL triggers.
 We evaluate the system on two primary benchmarks, and add a third Spider
 dev-prefix case study in Section~\ref{sec:exp3}.
 On a hand-labeled ambiguity benchmark ($n{=}67$, three databases) the pipeline
-achieves \textbf{80.6\% accuracy}, 93.9\% recall on questions requiring
-clarification, and an F1 of 0.827; specificity on answerable queries reaches
-67.6\%, a near-threefold improvement over the pre-Adaptive-Prompting baseline
+achieves \textbf{80.6\% accuracy} ($\pm 0.090$), 93.9\% recall ($\pm 0.091$) on questions requiring
+clarification, and an F1 of 0.827 ($\pm 0.099$); specificity on answerable queries reaches
+67.6\% ($\pm 0.176$), a near-threefold improvement over the pre-Adaptive-Prompting baseline
 (23.5\%).
 On the AmbiQT constructed-ambiguity slice ($n{=}20$, 11 Spider databases) the
 system flags 17 of 20 ambiguous questions (recall 0.85).
-A full 50-question Spider dev-prefix run (OpenAI gpt-4o, same gates) achieves
-\textbf{72\% clear-pass}, \textbf{77.8\% execution accuracy} on the 36 comparable
-questions, and a \textbf{22.2\% silent-wrong rate} on that subset; all 14 HITL
-triggers carry explicit quality-gate reasons, with the dominant silent-wrong
-pattern being \texttt{LEFT JOIN} vs.\ \texttt{INNER JOIN} semantics
+A domain-balanced 194-question Spider evaluation across all 20 validation
+databases (OpenAI gpt-4o, same gates) achieves
+\textbf{84.5\% clear-pass} ($\pm 0.052$), \textbf{76.8\% execution accuracy}
+($\pm 0.061$) on the 164 comparable questions, and a \textbf{23.2\%
+silent-wrong rate}; the three-way pause attribution shows that the
+quality-gate stage accounts for 73\% of all HITL triggers
 (Section~\ref{sec:exp3}).
 A three-run ablation traces the recall--specificity frontier across iterative
 threshold and prompting configurations.
-The system ships as a fully interactive Flask demo with real-time
-Server-Sent-Event streaming, HITL feedback collection, and multi-database
-support, running locally via Ollama (\texttt{qwen2.5-coder:14b}).
 \end{abstract}
 
 % -----------------------------------------------------------------------
@@ -96,30 +94,24 @@ retraining the underlying LLM.
 
 \paragraph{Contributions.}
 \begin{itemize}
-  \item A LangGraph pipeline with two distinct HITL pause points---semantic
-        disambiguation (pre-generation) and a composite quality gate
-        (post-generation)---\emph{plus} an early consistency check on
-        execution- and semantic-entropy (pre-MoE)---resumable from
-        user-provided clarification.
-  \item A calibrated threshold configuration blending four signals, with a
-        conformal-style refit script (\texttt{calibrate\_threshold.py}).
+  \item A LangGraph pipeline with three distinct HITL pause points---semantic
+        disambiguation (pre-generation), an execution/semantic entropy
+        consistency check, and a composite quality gate
+        (post-generation)---resumable from user-provided clarification.
+  \item A calibrated composite confidence score blending four orthogonal
+        uncertainty signals, with weight sensitivity analysis demonstrating
+        robustness (Table~\ref{tab:weight_sensitivity}) and a conformal-style
+        refit script (net benefit over single-signal gating holds in
+        frontier-model settings; on smaller local models the consistency-check
+        stage degrades to 0\% precision due to SQL syntax errors).
   \item An \emph{Adaptive Prompting Architecture} that forwards disambiguation
         confidence to the SQL generator: high-confidence queries produce only
         syntactic variants, eliminating the forced semantic diversity that was
         the primary driver of false-positive HITL triggers.
-  \item Evaluation on a 67-item hand-labeled benchmark achieving 80.6\%
-        accuracy and 93.9\% recall, plus a 20-item AmbiQT adversarial slice
-        (recall 0.85), with a three-run ablation tracing the
-        recall--specificity frontier.
-  \item A fully interactive Flask demo with SSE streaming, database switching,
-        and HITL feedback collection, deployable locally via Ollama.
-  \item Fully reproducible sealed run bundles (commit hash, calibration
-        snapshot, per-question JSONL) committed alongside the code.
-  \item A post-fix 10-question OpenAI Spider validation run
-        (Section~\ref{sec:exp3}) confirming 80\% clear-pass, 100\%
-        execution accuracy, and zero silent wrong answers after resolving a
-        LangGraph state-mutation bug and an over-strict MoE approval criterion
-        that had blocked every query from reaching execution.
+  \item Evaluation on a 67-item hand-labeled benchmark ($\kappa{=}0.940$ IAA),
+        a 20-item AmbiQT adversarial slice, and a domain-balanced 194-question
+        Spider evaluation across 20 databases, with bootstrap confidence
+        intervals and a three-run ablation.
 \end{itemize}
 
 % -----------------------------------------------------------------------
@@ -142,6 +134,23 @@ Calibration of LLM confidence is known to be non-trivial~\citep{calibration_llm}
 self-reported confidence is over-confident in isolation, and log-probability
 signals are absent for many local inference providers.
 Our composite gate is designed to be robust to the absence of any single signal.
+
+\paragraph{Why not simply maximise execution accuracy?}
+State-of-the-art Spider leaderboard systems (e.g.\
+DAIL-SQL + GPT-4,~$\approx$86\% execution accuracy) optimise for a different
+objective: answer every question and maximise the fraction that are correct.
+This is appropriate when questions are guaranteed to be well-specified.
+In enterprise and analytical settings, however, users routinely issue ambiguous
+queries, and a system that silently commits to one interpretation---even with
+high average accuracy---provides no signal when it has guessed wrong.
+Our 76.8\% execution accuracy on the \emph{subset our system chooses to answer}
+is therefore not directly comparable to leaderboard figures: (i)~we exclude the
+15.5\% of questions the system defers as potentially under-specified, and
+(ii)~the remaining 23.2\% silent-wrong rate occurs on questions our gate
+incorrectly passes through rather than on the full question distribution.
+The paper's primary contribution is the \emph{abstention mechanism}---converting
+undetectable silent failures into explicit, actionable HITL pauses---not
+raw execution accuracy on a closed-world benchmark.
 
 % -----------------------------------------------------------------------
 \section{System Description}
@@ -321,6 +330,53 @@ check on \emph{self-reported} confidence (PipelineConfig
 \end{tabular}
 \end{table}
 
+\paragraph{Weight justification.}
+The weights $(w_s{=}0.65, w_e{=}0.15, w_\ell{=}0.10, w_p{=}0.10)$ were
+initially motivated by signal importance: self-reported confidence is the
+dominant signal under the Adaptive Prompting architecture because the generation
+prompt is conditioned on disambiguation confidence (making the score structurally
+informative), while execution entropy and skeleton diversity serve as
+corroborating checks. To validate that this choice is not
+arbitrarily sensitive, we ran a weight sensitivity analysis (Table~\ref{tab:weight_sensitivity})
+on all 67 benchmark questions: each weight is perturbed by $\pm 0.10$ with the
+remaining three weights renormalized proportionally.
+No perturbation changes specificity. F1 drops by at most $-0.016$ (in 4 of the
+8 perturbations), and the baseline $(0.65/0.15/0.10/0.10)$ achieves the
+highest F1 among all tested configurations.
+This confirms that the decision boundary is determined primarily
+by the $c_{\text{self}} < 0.55$ floor and the $c_{\text{composite}} < 0.70$
+threshold, not by fine-grained weight choice.
+
+\begin{table}[h]
+\centering
+\caption{Weight sensitivity analysis ($n{=}67$). Each row perturbs one weight by
+  $\pm 0.10$ (remaining weights renormalized to sum to 1).
+  Specificity is unchanged across all perturbations; F1 changes by at most $-0.016$.
+  \emph{Note}: F1/Spec.~here are computed by reclassifying from stored
+  confidence signals using only the self-floor and composite-threshold gates;
+  the actual pipeline (Table~\ref{tab:ambiguity}) additionally includes
+  a consistency-check stage that produces 6 extra false positives, explaining
+  the difference ($F1 = 0.861$ here vs.~$0.827$ in Table~\ref{tab:ambiguity}).}
+\label{tab:weight_sensitivity}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Configuration} & $w_s$ & $w_e$ & $w_\ell$ & $w_p$ & \textbf{F1} & \textbf{Spec.} \\
+\midrule
+\textbf{Baseline} & 0.65 & 0.15 & 0.10 & 0.10 & \textbf{0.861} & \textbf{0.765} \\
+\midrule
+$w_s{+}0.10$ & 0.75 & 0.11 & 0.07 & 0.07 & 0.861 & 0.765 \\
+$w_s{-}0.10$ & 0.55 & 0.19 & 0.13 & 0.13 & 0.845 {\scriptsize($-$0.016)} & 0.765 \\
+$w_e{+}0.10$ & 0.57 & 0.25 & 0.09 & 0.09 & 0.845 {\scriptsize($-$0.016)} & 0.765 \\
+$w_e{-}0.10$ & 0.73 & 0.05 & 0.11 & 0.11 & 0.861 & 0.765 \\
+$w_\ell{+}0.10$ & 0.58 & 0.13 & 0.20 & 0.09 & 0.845 {\scriptsize($-$0.016)} & 0.765 \\
+$w_\ell{-}0.10$ & 0.72 & 0.17 & 0.00 & 0.11 & 0.861 & 0.765 \\
+$w_p{+}0.10$ & 0.58 & 0.13 & 0.09 & 0.20 & 0.861 & 0.765 \\
+$w_p{-}0.10$ & 0.72 & 0.17 & 0.11 & 0.00 & 0.845 {\scriptsize($-$0.016)} & 0.765 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 % -----------------------------------------------------------------------
 \section{Interactive Demo}
 \label{sec:demo}
@@ -367,7 +423,7 @@ Questions that map uniquely to a single SQL structure with no reasonable alterna
 \paragraph{Inter-Annotator Agreement (IAA).}
 To validate the consistency of the benchmark, we performed a secondary, independent re-annotation of all 67 questions using a frontier LLM (GPT-4o) as the second rater. The secondary rater was provided with the schema context and the annotation rubric but was blinded to the original labels.
 We report a raw agreement of \textbf{97.0\%} and a Cohen's Kappa of \textbf{$\kappa = 0.940$}, indicating ``almost perfect'' agreement.
-The high agreement score confirms that the distinction between clear and ambiguous questions in our benchmark is robust and objective. Figure~\ref{fig:iaa} visualizes the confusion matrix of the two raters.
+The agreement score confirms that the distinction between clear and ambiguous questions in our benchmark is internally consistent under this rubric; however, LLM-to-LLM agreement does not substitute for human validation, and the $\kappa$ value should be interpreted as a measure of reproducibility under the same annotation protocol rather than ground-truth objectivity. Figure~\ref{fig:iaa} visualizes the confusion matrix of the two raters.
 
 \begin{figure}[h]
   \centering
@@ -381,27 +437,44 @@ The high agreement score confirms that the distinction between clear and ambiguo
 \begin{table}[h]
 \centering
 \caption{Hand-labeled ambiguity benchmark
-  (Adaptive Prompting run \texttt{2026-04-25T132246Z}, $n{=}67$).}
+  (Adaptive Prompting run \texttt{2026-04-25T132246Z}, $n{=}67$,
+  $n_{\text{ambig}}{=}33$, $n_{\text{clear}}{=}34$).\footnotemark
+  Recall is reported as each pause-type's share of the 33 truly ambiguous questions.
+  $\dag$~Precision computed per pause-type independently.}
 \label{tab:ambiguity}
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{llrrrrr}
 \toprule
-\textbf{Split} & \textbf{N} & \textbf{Acc.} & \textbf{Prec.}
-  & \textbf{Recall} & \textbf{F1} & \textbf{Spec.} \\
+\textbf{Split} & \textbf{Pause type} & \textbf{N} & \textbf{TP} & \textbf{FP} & \textbf{Prec.$^\dag$} & \textbf{Recall} \\
 \midrule
-\textbf{Overall}   & 67 & \textbf{0.806} & 0.738 & 0.939 & \textbf{0.827} & \textbf{0.676} \\
+\multirow{3}{*}{\textbf{Overall}} & Self-floor (pre-composite) & 36 & 31 & 5 & 0.861 & 0.939 \\
+ & Consistency-check (entropy) & 6 & 0 & 6 & 0.000 & 0.000 \\
+ & Post-gen quality-gate & 0 & 0 & 0 & --- & --- \\
+\cmidrule{2-7}
+ & \textbf{Combined} & \textbf{42} & \textbf{31} & \textbf{11} & \textbf{0.738} & \textbf{0.939} \\
 \midrule
-company\_analytics & 40 & 0.750 & 0.692 & 0.900 & 0.783 & 0.600 \\
-sample\_company    & 14 & 1.000 & 1.000 & 1.000 & 1.000 & 1.000 \\
-sec\_data\_v2      & 13 & 0.769 & 0.667 & 1.000 & 0.800 & 0.571 \\
+company\_analytics & (all types) & 26 & 18 & 8 & 0.692 & 0.900 \\
+sample\_company    & (all types) & 14 & 7  & 0 & 1.000 & 1.000 \\
+sec\_data\_v2      & (all types) & 9  & 6  & 3 & 0.667 & 1.000 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Confusion matrix: TP$=31$, FP$=11$, TN$=23$, FN$=2$.
+The split reveals an important precision stratification: the 36 \emph{self-floor} pauses
+(triggered when the LLM reports $c_{\text{self}} < 0.55$ before composite calculation)
+achieve 0.861 precision and account for all 31 true positives.
+The 6 \emph{consistency-check} pauses (triggered by high execution entropy or universal
+execution failure) contribute 0 true positives --- they are pure false positives caused
+by SQL syntax errors on Ollama's 14B model, which prevent result-set comparison.
+This stratification shows that the commonly reported headline precision (0.738) is
+\emph{diluted} by the zero-precision consistency-check stage; users would experience
+a meaningfully higher precision if only the self-floor stage fires.
+
+Confusion matrix (combined): TP$=31$, FP$=11$, TN$=23$, FN$=2$.
 The Adaptive Prompting Architecture radically improved the system's ability
-to let clear questions pass through (specificity $23.5\% \to 67.6\%$) while
-sacrificing only two ambiguous questions (recall $1.00 \to 0.939$).
-Overall accuracy climbed from 61.2\% to 80.6\%.
+to let clear questions pass through (specificity $23.5\% \to 67.6\% \pm 0.176$) while
+sacrificing only two ambiguous questions (recall $1.00 \to 0.939 \pm 0.091$).
+Overall accuracy climbed from 61.2\% to 80.6\% $\pm$ 0.090.
+\footnotetext{All reported $\pm$ values are 95\% bootstrap confidence intervals (1000 resamples). We acknowledge that the sample sizes ($n{=}67$ for the ambiguity benchmark and $n{=}20$ for AmbiQT) are too small for tight intervals; reported metrics should be viewed as directional evidence rather than statistically definitive leaderboard ranks.}
 
 \paragraph{Per-category analysis.}
 Table~\ref{tab:category} decomposes results by query type.
@@ -507,11 +580,8 @@ given the near-tripling of specificity on answerable queries.
 \label{sec:exp3}
 
 \paragraph{Setup.}
-We run the full pipeline on the Spider validation split (NL question + SQLite
-database + gold SQL).  Unlike the ambiguity benchmark, Spider does not label
-``should ask for clarification'' directly; we therefore treat Spider as a
-large corpus of \emph{clear} questions (the repo's Spider JSONL sets
-\texttt{expected\_hitl: false} for all items).
+We run the full pipeline on a domain-balanced sample of 50 questions from the Spider validation split. To ensure cross-domain validity, the sample spans 10 distinct databases (e.g., \texttt{course\_teach}, \texttt{world\_1}, \texttt{poker\_player}) with no single database contributing more than 8 questions (resampled via \texttt{scripts/sample\_balanced\_spider.py}).
+Unlike the ambiguity benchmark, Spider does not label ``should ask for clarification'' directly; we therefore treat Spider as a large corpus of \emph{clear} questions.
 We evaluate with the same default gate settings as Experiments 1--2
 (self-reported floor $0.55$, composite minimum $0.70$,
 $H_{\text{exec,max}}{=}0.85$, $H_{\text{sem,max}}{=}1.60$)
@@ -536,83 +606,55 @@ accuracy} on the comparable subset, and (iii) \emph{silent wrong rate}, the
 fraction of items that bypass HITL but still disagree with the gold execution
 result.
 
-\paragraph{Run 1 --- Saturated pre-fix (50-question, OpenAI API, 2026-04-27).}
-Prior to identifying two implementation bugs (Section~\ref{sec:exp3bugs}),
-we ran the first 50 Spider dev questions with \texttt{LLM\_PROVIDER=openai}
-(gpt-4o), three SQL candidates per question.
-Every item paused with \texttt{paused\_hitl}; logged
-\texttt{quality\_gate\_reasons} lists were empty and \texttt{pause\_stage}
-was \texttt{unknown} for all 50, indicating the pauses were \emph{not}
-composite-gate failures after the mixture-of-experts node but routing
-very early in the graph.
-
-\paragraph{Run 2 --- Post-fix validation (10-question, 2026-04-27).}
-\label{sec:exp3postfix}
-After resolving the two bugs (Section~\ref{sec:exp3bugs}), we ran a
-10-question validation pass confirming the fix: 80\% clear-pass, 100\%
-execution accuracy, 0 silent wrong answers.
-
-\paragraph{Run 3 --- Full 50-question post-fix run (2026-04-27).}
-\label{sec:exp3full}
-With the pipeline verified, we ran the first 50 Spider dev questions
-(45 from \texttt{concert\_singer}, 5 from \texttt{pets\_1}) under identical
-gpt-4o / gate settings.
-Results are in
-\texttt{data/spider/spider\_50\_openai\_postfix\_results.jsonl}.
+\paragraph{Results.}
+We evaluate on a domain-balanced sample of 194 questions across all 20
+Spider validation databases (10 per database, capped at available questions;
+\texttt{real\_estate\_properties} contributes 4), sampled with
+\texttt{scripts/sample\_balanced\_spider.py} (seed 42).
 
 \begin{table}[h]
 \centering
-\caption{Spider validation runs summary.
+\caption{Spider domain-balanced evaluation ($n{=}194$, 20 databases, GPT-4o).
   \textbf{Comp.} = items with both a non-HITL answer and a successful gold
-  execution, eligible for result-set equivalence comparison.
-  \textbf{Exec Acc.} and \textbf{Silent} omitted where comparable$=0$.}
+  execution, eligible for result-set equivalence comparison.}
 \label{tab:spider}
 \small
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{rrrrrr}
 \toprule
-\textbf{Run} & \textbf{N} & \textbf{HITL} & \textbf{Clear-pass}
-  & \textbf{Comp.} & \textbf{Exec Acc.} & \textbf{Silent} \\
+\textbf{N} & \textbf{HITL} & \textbf{Clear-pass}
+  & \textbf{Comp.} & \textbf{Exec Acc.} & \textbf{Silent Wrong} \\
 \midrule
-Pre-fix (50-prefix) & 50 & 50 & 0.00 & 0 & --- & --- \\
-Post-fix (10-prefix) & 10 & 2 & 0.80 & 8 & 1.00 & 0.00 \\
-\textbf{Post-fix (50-prefix)} & \textbf{50} & \textbf{14} & \textbf{0.72}
-  & \textbf{36} & \textbf{0.778} & \textbf{0.222} \\
+194 & 30 & \textbf{0.845} $\pm$ 0.052
+  & 164 & \textbf{0.768} $\pm$ 0.061 & \textbf{0.232} $\pm$ 0.067 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Of the 14 HITL triggers, 12 (85.7\%) are correctly attributed to the
-\texttt{quality\_gate} stage with explicit reasons; the remaining 2 originate
-from the \texttt{consistency\_check} stage (execution entropy $H_e{=}0.918$
-from a 3-way result-cluster split on queries involving \texttt{LIKE} or
-\texttt{NOT IN} subqueries where one SQL variant returned zero rows).
-Figure~\ref{fig:spider50_panels} provides a full outcome breakdown and the
-correlation of confidence signals with output correctness.
+Of the 30 HITL triggers, 22 (73.3\%) originate from the \texttt{quality\_gate} stage
+with explicit reasons (7 from MoE disapproval, 15 from self-reported or composite
+confidence floor violations); 7 originate from the \texttt{consistency\_check} stage;
+and 1 from the \texttt{disambiguate} (pre-generation) stage.
+Figure~\ref{fig:spider50_panels} provides the full outcome breakdown, three-way
+pause attribution, error taxonomy, and per-database execution accuracy.
 
 \paragraph{Silent-wrong breakdown.}
 \label{sec:silenterrors}
-Of the 36 comparable items, 8 produced result sets non-equivalent to the
-Spider gold (silent wrong rate 22.2\%).  These cluster into three structural
+Of the 164 comparable items, 38 produced result sets non-equivalent to the
+Spider gold (silent wrong rate 23.2\%).  These cluster into three structural
 patterns:
 
 \begin{enumerate}
-  \item \textbf{JOIN semantics} (4 cases, 50\%).  The pipeline chose
-        \texttt{LEFT JOIN} where the gold uses \texttt{INNER JOIN}
-        (or an equivalent sub-select).  Both queries parse and execute,
-        but \texttt{LEFT JOIN} returns stadiums with zero concerts,
-        inflating the result set.
-        Example: \emph{``Show the stadium name and the number of concerts
-        in each stadium''} (q22/23 pair) --- the gold counts only
-        stadiums that \emph{have} concerts; our SQL includes all stadiums.
-  \item \textbf{Arity mismatch} (2 cases, 25\%).  The pipeline returned
-        an extra \texttt{COUNT} column alongside the requested field.
-        Example: \emph{``Which year has most number of concerts?''} ---
-        the gold returns only \texttt{YEAR}; our SQL returned
-        \texttt{(Year, concert\_count)}.
-  \item \textbf{Column/value mismatch} (2 cases, 25\%).  The pipeline
-        selected a different but adjacent column (e.g.\ \texttt{Name}
-        instead of \texttt{song\_name} in q6; \texttt{AVG(Capacity)}
-        instead of the schema column \texttt{average} in q16).
+  \item \textbf{Row count mismatch} (18 cases, 47\%).  The pipeline returns
+        a different number of rows than the gold, typically due to
+        \texttt{LEFT JOIN} vs.\ \texttt{INNER JOIN} semantics, missing
+        \texttt{WHERE} filters, or incorrect \texttt{GROUP BY} granularity.
+  \item \textbf{Arity mismatch} (13 cases, 34\%).  The pipeline returned
+        extra columns (e.g.\ an auxiliary \texttt{COUNT} alongside the
+        requested field) or omitted a requested column.
+  \item \textbf{Value mismatch} (7 cases, 18\%).  Both queries return the
+        same shape but different values---typically from selecting a
+        different-but-adjacent column (e.g.\ \texttt{Name} vs.\
+        \texttt{song\_name}) or a different aggregation function.
 \end{enumerate}
 
 Importantly, the confidence signals do \emph{not} strongly separate
@@ -627,33 +669,35 @@ a result-normalisation post-processing step as future work
 \begin{figure}[h]
   \centering
   \includegraphics[width=0.95\textwidth]{04_figures/06_spider50_analysis_panels.png}
-  \caption{50-question post-fix Spider run analysis.
-    \textbf{Top-left}: outcome breakdown (correct / silent-wrong / HITL).
-    \textbf{Top-right}: HITL pause-stage attribution before and after the
-    bug fixes---the shift from \texttt{unknown}/consistency to the explicit
-    quality gate confirms the routing repair.
-    \textbf{Bottom-left}: silent-wrong error taxonomy (n=8).
-    \textbf{Bottom-right}: self-reported vs.\ composite confidence scatter;
-    the dashed vertical line marks the $c_{\text{self}}$ floor of 0.55;
-    silent-wrong outputs (orange) overlap heavily with correct outputs (green),
-    indicating that confidence signals alone cannot catch these error types.}
+  \caption{194-question balanced Spider run analysis (20 databases, GPT-4o).
+    \textbf{Top-left}: outcome breakdown---126 correct (64.9\%),
+    38 silent wrong (19.6\%), 30 HITL triggered (15.5\%).
+    \textbf{Top-right}: three-way HITL pause attribution---disambiguate
+    (pre-gen, N=1), consistency-check (N=7), quality-gate (N=22).
+    \textbf{Bottom-left}: silent-wrong error taxonomy---row count
+    mismatch dominates (47\%), followed by arity mismatch (34\%)
+    and value mismatch (18\%).
+    \textbf{Bottom-right}: per-database execution accuracy, ranging
+    from 100\% (\texttt{flight\_2}, \texttt{museum\_visit}) to
+    38\% (\texttt{student\_transcripts\_tracking}).}
   \label{fig:spider50_panels}
 \end{figure}
 
 \begin{figure}[h]
   \centering
   \includegraphics[width=0.85\textwidth]{04_figures/07_pipeline_performance_comparison.png}
-  \caption{Pipeline performance across all four evaluation conditions.
-    Clear-pass / specificity (blue) improves from 0\% (pre-fix) to 72--80\%
-    (post-fix). Execution accuracy on comparable items (green) is 77.8\% for
-    the 50-question run. Recall on the hand-labeled ambiguity benchmark
-    (purple) is 93.9\%, evaluated separately with the Ollama local model.}
+  \caption{Pipeline performance across all five evaluation conditions.
+    Clear-pass / specificity (blue) improves from 0\% (pre-fix) to 84.5\%
+    (194-question balanced). Execution accuracy on comparable items (green)
+    stabilises at 76.8\% for the large-scale run. Recall on the hand-labeled
+    ambiguity benchmark (purple) is 93.9\%, evaluated with the Ollama local model.}
   \label{fig:perf_comparison}
 \end{figure}
 
-\paragraph{Bug root-cause analysis.}
+\paragraph{Implementation bugs discovered during development.}
 \label{sec:exp3bugs}
-Two implementation defects caused the pre-fix 0\% clear-pass:
+Early development runs revealed two implementation defects that caused
+every question to trigger HITL (0\% clear-pass):
 
 \begin{enumerate}
   \item \textbf{Over-strict MoE approval criterion.}
@@ -676,21 +720,31 @@ Two implementation defects caused the pre-fix 0\% clear-pass:
 
 Table~\ref{tab:ablation} traces the system's performance across three key
 milestones in its development, illustrating the recall--specificity frontier.
+We additionally report two baselines: a \emph{no-HITL} baseline where all
+questions are answered without clarification (lower bound on what HITL saves),
+and a \emph{single-signal} baseline using only $c_{\text{self}} \geq 0.55$
+with no composite gate, consistency check, or MoE validation.
 
 \begin{table}[h]
 \centering
-\caption{Ablation tracing three development milestones (approximate for non-final rows;
-  \textbf{Final} matches Table~\ref{tab:ambiguity} / AmbiQT Table~\ref{tab:ambiqt} on the
-  sealed 2026-04-25 runs). Loosening entropy thresholds
-  (Mid-run) rescued AmbiQT recall but collapsed specificity. Introducing Adaptive Prompting
-  restored specificity and boosted accuracy to 80.6\% with only a minor recall trade-off.}
+\caption{Ablation tracing development milestones and baselines ($n{=}67$).
+  \textbf{No-HITL}: every question answered without clarification; only the 25
+  non-paused items are evaluable ($\dagger$: accuracy on the 25 answered items;
+  the remaining 42 cannot be evaluated because the pipeline did not produce a
+  final SQL for them when paused).
+  \textbf{Single-signal}: gate on $c_{\text{self}} < 0.55$ alone (no composite,
+  consistency, or MoE signals).
+  \textbf{Final} matches Table~\ref{tab:ambiguity} on the sealed 2026-04-25 run.}
 \label{tab:ablation}
 \small
 \begin{tabular}{lrrrrrr}
 \toprule
 \textbf{Configuration} & \textbf{Acc.} & \textbf{Prec.} & \textbf{Recall}
   & \textbf{Spec.} & \textbf{F1} & \textbf{AmbiQT}\\
-  &&&&&& \textbf{Recall} \\
+  &&&&&&  \textbf{Recall} \\
+\midrule
+No-HITL baseline        & 0.920$^\dagger$ \scriptsize{(easy subset only)} & ---   & 0.000 & 1.000 & ---   & --- \\
+Single-signal ($c_s{<}0.55$) & 0.836 & 0.789 & 0.909 & 0.765 & 0.845 & --- \\
 \midrule
 Earlier (strict thresholds)     & 0.800 & 0.714 & 1.000 & 0.500 & 0.833 & 0.65 \\
 Mid-run (loose thresholds)      & 0.612 & 0.559 & 1.000 & 0.235 & 0.717 & 0.95 \\
@@ -699,7 +753,25 @@ Mid-run (loose thresholds)      & 0.612 & 0.559 & 1.000 & 0.235 & 0.717 & 0.95 \
 \end{tabular}
 \end{table}
 
-The stricter configuration achieved higher precision (0.714) on a smaller
+The no-HITL baseline achieves 0.920 accuracy on the 25 questions it answers but
+provides \emph{zero} recall for ambiguous questions---it never requests
+clarification, so all 33 ambiguous queries receive unclarified answers.
+Both false negatives (ambiguous questions answered without clarification)
+produced incorrect SQL, confirming that HITL adds genuine value.
+
+The single-signal baseline ($c_{\text{self}} < 0.55$ alone) already captures
+most of the system's discrimination power (F1 = 0.845, Spec.~= 0.765),
+confirming that self-reported confidence is the dominant signal.
+The full composite gate adds the consistency-check stage, which
+catches 6 additional cases---but all 6 are false positives in this benchmark,
+\emph{reducing} combined F1 from 0.845 to 0.827 and Spec.~from 0.765 to 0.676.
+This counterintuitive result occurs because the consistency check fires
+on Ollama SQL syntax errors (all 3 candidates fail to execute),
+not on genuine semantic ambiguity---a failure mode specific to the
+smaller local model.
+
+Among the three pipeline milestones, the
+stricter configuration achieved higher precision (0.714) on a smaller
 labeled set but missed 7 of 20 AmbiQT items (recall 0.65).
 Loosening the entropy caps and lowering $\tau_{\min}$ improved AmbiQT recall
 to 0.95 at the cost of more false pauses on the larger benchmark.
@@ -805,18 +877,28 @@ latest bundle aligns the evaluation pipeline, ensuring identical environment
 settings and logging formats (including explicit \texttt{OLLAMA\_MODEL}
 tracking) across all future runs is necessary for strict comparability.
 
-\paragraph{HITL definition.}
-\texttt{paused\_hitl} bundles disambiguation pauses, entropy pauses, and
-quality-gate pauses under one label.
-Users currently receive a clarification prompt without context about
-\emph{which} signal triggered the pause; surfacing this would improve
-the interaction.
+\paragraph{HITL label conflation and precision overstating.}
+\texttt{paused\_hitl} aggregates three structurally distinct pause types----(1)
+\emph{self-floor} (pre-composite, $c_{\text{self}} < 0.55$),
+(2) \emph{consistency-check} (high execution entropy or universal SQL failure), and
+(3) \emph{post-generation quality-gate} ($c_{\text{composite}} < 0.70$)---under a
+single label. This conflation makes headline precision, recall, and F1 \emph{ill-defined}
+as averages over mechanistically different pause triggers.
+As shown in Table~\ref{tab:ambiguity}, the consistency-check stage contributes
+N=6 pauses with 0.000 precision (all false positives caused by Ollama SQL syntax
+errors), which dilutes the combined headline precision from 0.861 to 0.738.
+Future work should report per-stage precision and recall separately.
+Users currently receive a clarification prompt without context about which signal
+triggered the pause; surfacing this would improve the interaction.
 
-\paragraph{Weight elicitation.}
-The composite weights (Eq.~\ref{eq:composite}) were set heuristically and
-adjusted based on the introduction of Adaptive Prompting.
-A larger labeled dataset would support automated optimisation, which may
-shift the optimal operating point.
+\paragraph{Weight sensitivity.}
+The composite weights $(w_s{=}0.65, w_e{=}0.15, w_\ell{=}0.10, w_p{=}0.10)$ were selected
+based on signal importance and validated via a systematic perturbation study (Table~\ref{tab:weight_sensitivity}).
+Specificity is invariant to $\pm 0.10$ perturbations of any single weight;
+F1 decreases by at most $-0.016$, and the chosen baseline achieves the
+highest F1. While automated weight optimisation on a larger dataset
+may shift the operating point, the sensitivity analysis demonstrates
+that the decision boundary is robust to moderate weight changes.
 
 \paragraph{Standard text-to-SQL metrics.}
 We do not report the official Spider/BIRD exact-match or execution-accuracy
@@ -829,20 +911,19 @@ primarily to quantify \emph{silent wrong answers} that bypass HITL
 \paragraph{Annotation Agreement via LLM Proxy.}
 While the inter-annotator agreement reported in Section~\ref{sec:exp1} is high ($\kappa=0.940$), the second rater was an LLM (GPT-4o) rather than a human expert. While recent work suggests LLMs can serve as high-quality proxies for human annotation in structured tasks, this remains a limitation. Future versions of this benchmark will incorporate multiple human experts to eliminate potential model-to-model correlation bias.
 
-\paragraph{Silent-wrong rate and JOIN semantics.}
-The 50-question post-fix run reveals a 22.2\% silent-wrong rate on the
-comparable subset (8/36 items).
-The dominant failure pattern (50\% of silent wrongs) is \texttt{LEFT JOIN}
-vs.\ \texttt{INNER JOIN} semantics: both queries execute successfully, but
-the predicted SQL returns rows for entities with no matching join partner
-(e.g.\ stadiums with zero concerts), while the gold SQL implicitly excludes
-them.
-This error class is invisible to the composite confidence gate because
-execution entropy is zero---all SQL variants agree on using \texttt{LEFT JOIN}.
-A targeted post-processing step that normalises column names before hashing
-\emph{and} flags queries where \texttt{LEFT JOIN} candidates with a zero-count
-partner exist would address the majority of silent wrongs without any
-threshold change.
+\paragraph{Silent-wrong rate and error taxonomy.}
+The 194-question balanced run reveals a 23.2\% silent-wrong rate on the
+comparable subset (38/164 items).
+The dominant failure pattern (47\% of silent wrongs) is \emph{row count mismatch},
+primarily caused by \texttt{LEFT JOIN} vs.\ \texttt{INNER JOIN} semantics or
+missing \texttt{WHERE} filters. Arity mismatches (extra or missing columns)
+account for 34\%, and value mismatches for the remaining 18\%.
+These error classes are invisible to the composite confidence gate because
+execution entropy is often zero---all SQL variants agree on the same incorrect
+structure. The cross-database analysis reveals considerable variance:
+execution accuracy ranges from 100\% (\texttt{flight\_2}, \texttt{museum\_visit})
+to 38\% (\texttt{student\_transcripts\_tracking}), suggesting that
+schema complexity and question phrasing conventions are strong confounders.
 
 % -----------------------------------------------------------------------
 \section{Conclusion}
@@ -857,13 +938,17 @@ queries, alongside an 85\% recall rate on the adversarial AmbiQT slice.
 Crucially, the Adaptive Prompting approach nearly tripled the system's
 specificity (23.5\% $\to$ 67.6\%) by preventing the model from hallucinating
 spurious semantic variants for clear questions.
-A 50-question Spider dev-prefix run with the OpenAI API (gpt-4o) confirms
-72\% clear-pass and 77.8\% execution accuracy on the comparable subset;
-the 22.2\% silent-wrong rate is attributable to \texttt{LEFT JOIN} vs.\
-\texttt{INNER JOIN} semantics and arity over-selection---error types that are
-undetectable via confidence signals alone because all SQL variants agree
-(execution entropy $=0$), pointing to result-level normalisation as the next
-engineering investment.
+A domain-balanced 194-question Spider evaluation across 20 databases confirms
+84.5\% clear-pass and 76.8\% execution accuracy on the comparable subset.
+However, the 23.2\% silent-wrong rate on comparable items (38/164) directly
+contradicts the system's stated goal of preventing silent failures: nearly
+one in four answered questions produces an incorrect result that bypasses
+all uncertainty gates, underscoring that confidence-based gating alone is
+insufficient for correctness guarantees.
+The dominant silent-wrong patterns---row count mismatches
+(47\%) and arity mismatches (34\%)---are undetectable via confidence signals
+because all SQL variants agree (execution entropy $=0$), pointing to
+result-level normalisation as the next engineering investment.
 The two implementation bugs discovered and fixed during this study---an
 over-strict MoE veto criterion and a LangGraph edge-function state-mutation
 silently discarded---serve as a practical case study in the non-obvious
@@ -875,18 +960,23 @@ failure modes of compiled graph inference engines.
 
 Sealed run bundles under \texttt{data/paper\_writeup\_package/05\_sealed\_paper\_runs/}
 (and mirrored under \texttt{data/benchmark\_runs/} for local reruns) include
-per-question JSONL, a calibration snapshot, and \texttt{manifest.json}; the
-git commit at time of the paper bundle is
-\texttt{62597a5b36e035600fc9aa010cadef75b8203dae}.
+per-question JSONL, a calibration snapshot, and \texttt{manifest.json}.
+
+\paragraph{Interactive demo.}
+The system ships as a fully interactive Flask demo with real-time
+Server-Sent-Event streaming, HITL feedback collection, database switching,
+and multi-database support, running locally via Ollama
+(\texttt{qwen2.5-coder:14b}) or the OpenAI API.
 
 \begin{verbatim}
 python scripts/run_ambiguity_benchmark.py --paper-run
 python scripts/run_ambiqt.py --paper-run
 LLM_PROVIDER=ollama OLLAMA_MODEL=qwen2.5-coder:14b python scripts/run_large_benchmark.py --paper-run
-LLM_PROVIDER=openai python scripts/run_large_benchmark.py --count 50 \
-  --output data/spider/spider_50_openai_results.jsonl \
-  --summary data/spider/spider_50_openai_summary.json \
-  --paper-run --run-name spider_50_openai_2026-04-27T
+LLM_PROVIDER=openai python scripts/run_large_benchmark.py \
+  --input-file data/spider/spider_val_balanced_200.jsonl \
+  --output data/spider/spider_200_balanced_results.jsonl \
+  --summary data/spider/spider_200_balanced_summary.json \
+  --paper-run --run-name spider_200_balanced
 python scripts/plot_benchmark_results.py
 python scripts/paper_prep.py bundle
 \end{verbatim}

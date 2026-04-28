@@ -101,16 +101,13 @@ def _execution_equivalent(
 
     return False, "value_mismatch"
 
-def load_spider_questions(max_count: int = None) -> List[Dict[str, Any]]:
-    spider_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'spider', 'spider_val.jsonl')
-    
-    if not os.path.exists(spider_path):
-        print(f"Dataset not found at {spider_path}")
-        print("Please run `python scripts/download_spider.py` first.")
+def load_spider_questions(input_path: str, max_count: int = None) -> List[Dict[str, Any]]:
+    if not os.path.exists(input_path):
+        print(f"Dataset not found at {input_path}")
         sys.exit(1)
         
     questions = []
-    with open(spider_path, 'r', encoding='utf-8') as f:
+    with open(input_path, 'r', encoding='utf-8') as f:
         for line in f:
             if not line.strip():
                 continue
@@ -361,6 +358,8 @@ def main():
                         help='Write stdout+stderr to this file as well (use tail -f if the real console is hidden).')
     parser.add_argument('--output', default='data/spider/spider_results.jsonl')
     parser.add_argument('--summary', default='data/spider/spider_large_summary.json')
+    parser.add_argument('--input-file', default='data/spider/spider_val.jsonl',
+                        help='Input file (jsonl format) with Spider questions.')
     parser.add_argument('--paper-run', action='store_true',
                         help='Package results+summary+calibration under data/benchmark_runs/ for paper / appendix.')
     parser.add_argument('--run-name', default='',
@@ -380,7 +379,7 @@ def main():
         sys.stderr = _Tee(sys.__stderr__, _log)
         print(f"Logging to {log_path}", flush=True)
     
-    questions = load_spider_questions(args.count)
+    questions = load_spider_questions(args.input_file, args.count)
     runner = LargeBenchmarkRunner(
         compare_to_gold=(not args.no_gold),
         confidence_threshold=args.confidence_threshold,

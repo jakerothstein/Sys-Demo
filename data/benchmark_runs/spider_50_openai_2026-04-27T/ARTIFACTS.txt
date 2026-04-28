@@ -1,4 +1,0 @@
-results.jsonl  Per-question outcomes (one JSON per line)
-summary.json     Aggregate metrics / provenance for tables
-calibration.json Threshold snapshot used for this run
-manifest.json    Reproducibility metadata

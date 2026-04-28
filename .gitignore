@@ -1,15 +1,25 @@
 # Virtual environment
-/venv
+/venv/
 
 # Generated embeddings (can be rebuilt)
 /data/chroma_db/
 
 # Runtime databases
 /data/benchmark_results.db
-# Large Datasets
+
+# Large datasets (download separately)
 /data/spider/
 /data/bird/
 /data/custom/
+/data/ambiqt/
+/data/ambiqt_tblsyn/
+/data/ambiqt_colsyn/
+/spider/
+
+# Derived/redundant data artifacts
+/data/paper_prep/
+/data/paper_writeup_package/
+/data/benchmark_plots/
 
 # SQLite databases
 *.sqlite
@@ -27,5 +37,16 @@ __pycache__/
 
 # OS files
 .DS_Store
+Thumbs.db
 
-/src/__pycache__
+# Logs
+*.log
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.out

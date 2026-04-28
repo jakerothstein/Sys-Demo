@@ -940,15 +940,17 @@ specificity (23.5\% $\to$ 67.6\%) by preventing the model from hallucinating
 spurious semantic variants for clear questions.
 A domain-balanced 194-question Spider evaluation across 20 databases confirms
 84.5\% clear-pass and 76.8\% execution accuracy on the comparable subset.
-However, the 23.2\% silent-wrong rate on comparable items (38/164) directly
-contradicts the system's stated goal of preventing silent failures: nearly
-one in four answered questions produces an incorrect result that bypasses
-all uncertainty gates, underscoring that confidence-based gating alone is
-insufficient for correctness guarantees.
-The dominant silent-wrong patterns---row count mismatches
-(47\%) and arity mismatches (34\%)---are undetectable via confidence signals
-because all SQL variants agree (execution entropy $=0$), pointing to
-result-level normalisation as the next engineering investment.
+While the system successfully intercepts semantic ambiguity, the 23.2\% silent-wrong
+rate on comparable items (38/164) illuminates a critical boundary in
+confidence-based gating: nearly one in four answered questions produces an
+incorrect result that bypasses all uncertainty gates. Rather than reflecting
+undetected ambiguity, the dominant silent-wrong patterns---row count mismatches
+(47\%) and arity mismatches (34\%)---occur when the model is universally
+confident but systematically misaligned with the benchmark's exact formatting
+expectations (execution entropy $=0$). This precise characterisation of residual
+errors demonstrates that while composite confidence gating effectively solves
+semantic uncertainty, true correctness guarantees will require pairing this
+architecture with result-level normalisation in future work.
 The two implementation bugs discovered and fixed during this study---an
 over-strict MoE veto criterion and a LangGraph edge-function state-mutation
 silently discarded---serve as a practical case study in the non-obvious

@@ -1,376 +1,219 @@
-# Text-to-SQL Research Pipeline
+# Knowing When to Ask: A Human-in-the-Loop Text-to-SQL System
 
-🧠 A LangGraph-powered Text-to-SQL agent with semantic disambiguation, self-correction, and Human-in-the-Loop (HITL) capabilities.
+A LangGraph-powered Text-to-SQL pipeline with multi-signal ambiguity detection, composite confidence gating, and Human-in-the-Loop (HITL) clarification.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![LangGraph](https://img.shields.io/badge/LangGraph-0.2+-green.svg)
-![Flask](https://img.shields.io/badge/Flask-3.0+-red.svg)
-
----
-
-## Overview
-
-This project implements an advanced Text-to-SQL pipeline that converts natural language questions into executable SQL queries. Unlike traditional keyword-matching approaches, this system uses a **state machine architecture** powered by LangGraph to handle ambiguous queries, validate generated SQL, and self-correct errors.
-
-### Key Features
-
-- **🔄 LangGraph State Machine** — Multi-node pipeline with conditional routing
-- **🤔 Semantic Disambiguation** — Detects ambiguous queries and requests clarification
-- **🔧 Self-Correction** — Automatically retries failed queries with error analysis
-- **👤 Human-in-the-Loop (HITL)** — Pauses for user input when confidence is low
-- **📊 RAG-Enhanced Generation** — Uses few-shot examples from vector store
-- **🗄️ Multi-Database Support** — Demo, BIRD-bench, Spider, and custom databases
+Companion code for the NeurIPS 2026 submission:  
+**"Knowing When to Ask: A Human-in-the-Loop Text-to-SQL System with Multi-Signal Ambiguity Detection"**
 
 ---
 
-## Architecture
+## Quick Start
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    LangGraph Pipeline                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────┐   ┌──────────────┐   ┌───────────────┐        │
-│  │  Parse   │──▶│ Disambiguate │──▶│ Generate SQL  │        │
-│  └──────────┘   └──────────────┘   └───────────────┘        │
-│       │              │                    │                 │
-│       │         HITL Pause                │                 │
-│       │              ▼                    ▼                 │
-│       │        ┌──────────┐       ┌──────────────┐          │
-│       │        │  Human   │       │   Execute    │          │
-│       │        │ Feedback │       │     SQL      │          │
-│       │        └──────────┘       └──────────────┘          │
-│       │                                   │                 │
-│       │                           Error   │  Success        │
-│       │                             ▼     ▼                 │
-│       │                      ┌──────────────┐               │
-│       └─────────────────────▶│    Debug     │◀──┐           │
-│                              │   & Retry    │───┘           │
-│                              └──────────────┘    (max 3)    │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Pipeline Nodes
-
-| Node | Description |
-|------|-------------|
-| `parse_node` | Extracts intent, tables, and entities from natural language |
-| `disambiguate_node` | Detects ambiguity and decides if HITL is needed |
-| `generate_sql_node` | Uses LLM to generate SQL from query + schema |
-| `validate_node` | Validates SQL syntax before execution |
-| `execute_node` | Runs SQL against the database safely |
-| `debug_node` | Analyzes errors and prepares correction prompts |
-
----
-
-## Installation
-
-### Prerequisites
-
-- Python 3.10+
-- SQLite
-- API key for OpenAI, Anthropic, or Google Gemini
-
-### Setup
+### 1. Install dependencies
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd "Sys Demo"
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install flask flask-cors langgraph langchain chromadb openai anthropic google-generativeai
-
-# Pick an LLM backend (choose one):
-export ANTHROPIC_API_KEY="your-key"   # cloud, best quality
-export GOOGLE_API_KEY="your-key"      # cloud, free tier with daily quota
-# ...or run a local model with Ollama (no API key, no rate limits):
-#   1. Install Ollama from https://ollama.com
-#   2. ollama pull qwen2.5-coder:7b   # ~4.7 GB, very strong at SQL
-#   3. export LLM_PROVIDER=ollama
+source venv/bin/activate       # Windows: venv\Scripts\activate
+pip install -r requirements-benchmarks.txt
 ```
 
-### Local model via Ollama
+### 2. Set your LLM backend
 
-Use this when the cloud provider's quota is exhausted or you want to iterate
-on the benchmark for free.
+**Option A — OpenAI (used for paper results)**
+```bash
+export OPENAI_API_KEY="sk-..."
+export LLM_PROVIDER=openai
+```
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `LLM_PROVIDER` | `auto` | Set to `ollama` to force local. `auto` falls back to Ollama if no cloud key is set and a local server is running. |
-| `OLLAMA_MODEL` | `qwen2.5-coder:7b` | Any tag visible in `ollama list`. `llama3.1:8b` and `granite3-dense:8b` also work. |
-| `OLLAMA_HOST` | `http://localhost:11434` | Override if Ollama is on a different host/port. |
-| `OLLAMA_NUM_CTX` | `8192` | Bump for very large schemas. |
+**Option B — Local via Ollama (free, no rate limits)**
+```bash
+# Install Ollama from https://ollama.com, then:
+ollama pull qwen2.5-coder:14b
+export LLM_PROVIDER=ollama
+export OLLAMA_MODEL=qwen2.5-coder:14b
+```
 
-**Caveats** — Ollama does not expose token-level log probabilities, so the
-log-prob signal contributes neutrally (0.5) to composite confidence. Execution
-entropy, semantic entropy, and self-reported confidence still drive the
-ambiguity gate. Smaller models also produce weaker SQL, so expect more
-false-positive HITL triggers than with Claude/Gemini — local is best for
-*iterating* on the pipeline, cloud is best for *headline benchmark numbers*.
+> **Note on local models:** Ollama does not expose token log-probabilities, so the log-prob signal contributes a neutral 0.5 to composite confidence. Smaller local models also produce more false-positive HITL triggers. OpenAI GPT-4o was used for all paper benchmark results.
 
----
-
-## Usage
-
-### Running the Web UI
+### 3. Run the interactive demo
 
 ```bash
 python app.py
+# Open http://localhost:5000
 ```
 
-Open [http://localhost:5000](http://localhost:5000) in your browser.
+---
 
-### Example Queries
+## Running the Benchmarks
 
-Try these example queries to test the system:
+All benchmark scripts live in `scripts/`. Run from the project root with the virtual environment active.
 
-| Query | Expected Behavior |
-|-------|-------------------|
-| "How many customers do we have?" | Direct SQL generation |
-| "Show total sales by department" | Multi-table JOIN |
-| "What are the sales?" | Triggers HITL (ambiguous) |
-| "Top 5 employees by performance" | Complex aggregation |
+### Ambiguity benchmark (n=67, paper primary result)
 
-### API Endpoints
+```bash
+python scripts/run_ambiguity_benchmark.py --paper-run
+```
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/query` | POST | Submit natural language query |
-| `/api/feedback` | POST | Provide HITL clarification |
-| `/api/databases` | GET | List available databases |
-| `/api/databases/switch` | POST | Switch active database |
-| `/api/databases/schema` | GET | Get current schema |
-| `/api/benchmark/start` | POST | Start benchmark run |
-| `/api/examples/save` | POST | Save query as few-shot example |
+Outputs results to `data/ambiguity_benchmark_results.jsonl` and a summary to `data/ambiguity_benchmark_summary.json`.
+
+### AmbiQT adversarial slice (n=20)
+
+```bash
+# First build the AmbiQT databases (one-time, requires Spider data in data/spider/)
+python scripts/build_ambiqt_dbs.py
+
+python scripts/run_ambiqt.py --paper-run
+```
+
+### Spider domain-balanced evaluation (n=194, 20 databases)
+
+```bash
+# Download Spider first (if not already present):
+python scripts/download_spider.py
+
+# Sample the balanced 194-question set (seed=42, already committed):
+# data/spider/spider_val_balanced_200.jsonl
+
+# Run:
+LLM_PROVIDER=openai python scripts/run_large_benchmark.py \
+  --input-file data/spider/spider_val_balanced_200.jsonl \
+  --output     data/spider/spider_200_balanced_results.jsonl \
+  --summary    data/spider/spider_200_balanced_summary.json \
+  --paper-run  --run-name spider_200_balanced
+```
+
+### Weight sensitivity analysis
+
+```bash
+python scripts/weight_sensitivity.py
+```
+
+### Bootstrap confidence intervals
+
+```bash
+python scripts/compute_confidence_intervals.py
+```
+
+---
+
+## Reproducing Paper Results
+
+Sealed benchmark runs are committed under `data/benchmark_runs/`. Each run directory contains:
+
+| File | Contents |
+|---|---|
+| `results.jsonl` | Per-question output with all signals |
+| `summary.json` | Aggregate metrics |
+| `calibration.json` | Gate thresholds used |
+| `manifest.json` | Metadata and run config |
+
+To refit the quality-gate threshold from a sealed run without re-running the LLM:
+
+```bash
+python scripts/calibrate_threshold.py \
+  --results data/benchmark_runs/ambiguity_aligned_20260425/results.jsonl
+```
 
 ---
 
 ## Project Structure
 
 ```
-Sys Demo/
-├── app.py                  # Flask web server + API endpoints
+├── app.py                          # Flask demo server (SSE streaming, HITL feedback)
 ├── src/
 │   ├── graph/
-│   │   ├── pipeline.py     # LangGraph pipeline construction
-│   │   ├── nodes.py        # Pipeline node implementations + LLM prompts
-│   │   ├── edges.py        # Conditional routing logic
-│   │   └── state.py        # Pipeline state definition
+│   │   ├── pipeline.py             # LangGraph pipeline construction
+│   │   ├── nodes.py                # All pipeline node implementations
+│   │   ├── edges.py                # Conditional routing logic
+│   │   └── state.py                # Pipeline state schema
 │   ├── llm/
-│   │   ├── client.py       # LLM client abstraction
-│   │   └── providers.py    # OpenAI/Anthropic/Gemini providers
+│   │   └── client.py               # LLM provider abstraction (OpenAI / Ollama)
 │   ├── data/
-│   │   ├── schema.py       # Schema loading + formatting
-│   │   ├── vector_store.py # Vector store + schema linking
-│   │   └── few_shot.py     # Vector store for examples
+│   │   ├── vector_store.py         # ChromaDB vector store for few-shot RAG
+│   │   └── benchmark_store.py      # Benchmark result storage
 │   └── sandbox/
-│       └── executor.py     # Safe SQL execution
+│       └── executor.py             # Sandboxed SQL execution (do not modify)
+├── scripts/
+│   ├── run_ambiguity_benchmark.py  # Primary benchmark runner
+│   ├── run_large_benchmark.py      # Spider / large-scale runner
+│   ├── run_ambiqt.py               # AmbiQT adversarial benchmark
+│   ├── sample_balanced_spider.py   # Domain-balanced Spider sampler
+│   ├── calibrate_threshold.py      # Gate threshold refitting
+│   ├── compute_confidence_intervals.py  # Bootstrap CIs (1000 resamples)
+│   ├── weight_sensitivity.py       # Composite weight perturbation analysis
+│   ├── reannotate_benchmark.py     # LLM-based IAA re-annotation
+│   └── plot_benchmark_results.py   # Figure generation
 ├── data/
-│   ├── schema_catalog.json # Database schemas with FK relations
-│   ├── few_shot_examples.json # Example question-SQL pairs (60+ examples)
-│   ├── chroma_db/          # Vector store for RAG
-│   └── custom/             # Custom databases
-├── static/
-│   ├── index.html          # Main UI
-│   ├── style.css           # Styles
-│   ├── app.js              # Frontend JavaScript
-│   └── analytics.html      # Benchmark analytics dashboard
-└── scripts/
-    ├── create_company_db.py        # Generate test database
-    └── analyze_data_for_examples.py # Generate few-shot examples from data
+│   ├── ambiguity_benchmark.json    # 67-item hand-labeled benchmark
+│   ├── ambiguity_benchmark_results.jsonl  # Sealed primary run results
+│   ├── ambiqt_results.jsonl        # Sealed AmbiQT run results
+│   ├── calibration.json            # Active gate configuration
+│   ├── few_shot_examples.json      # RAG example pool
+│   ├── schema_catalog.json         # Database schema registry
+│   └── benchmark_runs/             # Timestamped sealed run bundles
+└── SQL_Proj/
+    ├── neurips_2026.tex            # Paper source
+    ├── neurips_2026.sty            # NeurIPS 2026 style file
+    └── 04_figures/                 # All paper figures
 ```
+
+---
+
+## Pipeline Architecture
+
+```
+disambiguate_node
+      │
+      ├─[ambiguous]──▶  HITL pause (pre-generation)
+      │
+      ▼
+generate_draft_sql ──▶ retrieve_examples ──▶ generate_sql
+                                                    │
+                                                    ▼
+                                          consistency_check
+                                                    │
+                                    ├─[high entropy]──▶ HITL pause
+                                                    │
+                                                    ▼
+                                           evaluate_sql  (composite gate)
+                                                    │
+                                    ├─[low confidence]──▶ HITL pause
+                                                    │
+                                                    ▼
+                                            execute_sql
+                                                    │
+                                         ├─[error]──▶ debug ──▶ retry (max 2)
+                                                    │
+                                                    ▼
+                                               ✅ result
+```
+
+**Three HITL pause points:**
+1. **Pre-generation** — Disambiguation node detects semantic ambiguity
+2. **Consistency check** — Execution/semantic entropy exceeds threshold
+3. **Quality gate** — Composite confidence score < 0.70
 
 ---
 
 ## Configuration
 
-The pipeline can be configured through `PipelineConfig`:
+Gate thresholds are stored in `data/calibration.json`. Key parameters:
 
-```python
-from src.graph.pipeline import PipelineConfig
+| Parameter | Default | Description |
+|---|---|---|
+| `confidence_threshold` | 0.55 | Self-reported confidence floor |
+| `disambiguation_clear_confidence` | 0.70 | Composite gate minimum |
+| `num_sql_variations` | 3 | Candidates for entropy calculation |
+| `max_retries` | 2 | Self-correction attempts |
 
-config = PipelineConfig(
-    confidence_threshold=0.55,  # Disambiguation back-stop; see calibration.json for quality gate
-    max_retries=3,             # Self-correction attempts
-    llm_provider="auto",       # auto, openai, anthropic, gemini
-    use_few_shot=True,         # Enable RAG examples
-    debug_mode=False           # Verbose logging
-)
+Composite confidence formula (Equation 1 in paper):
+
 ```
-
----
-
-## Databases
-
-### Included Databases
-
-1. **Demo (E-Commerce)** — Customers, orders, products, order_items
-2. **Company Analytics** — 10-table business database with 1,373 rows:
-   - employees, departments, projects, project_assignments
-   - customers, sales, products, categories
-   - inventory, locations
-
-### Adding Custom Databases
-
-1. Place `.db` file in `data/custom/`
-2. Add schema to `data/schema_catalog.json`:
-
-```json
-{
-  "databases": {
-    "your_database": {
-      "file": "data/custom/your_database.db",
-      "tables": {
-        "table_name": {
-          "columns": {
-            "column_name": {"type": "TEXT", "description": "..."}
-          }
-        }
-      }
-    }
-  }
-}
-```
-
----
-
-## How It Works
-
-### 1. Query Parsing
-The system extracts structured information from natural language:
-- **Intent**: SELECT, COUNT, SUM, etc.
-- **Tables**: Which tables are relevant
-- **Entities**: Specific values mentioned (dates, names, etc.)
-
-### 2. Semantic Disambiguation
-The LLM analyzes whether the query is ambiguous:
-- Missing time range? ("sales" — all time or this month?)
-- Unclear aggregation? ("total" — sum, count, or average?)
-- Multiple interpretations? ("performance" — sales, ratings, etc.)
-
-If confidence < threshold, the system pauses for human clarification.
-
-### 3. SQL Generation
-Uses the LLM with:
-- Full database schema (including foreign keys)
-- Retrieved few-shot examples (RAG)
-- Disambiguation context (if provided)
-
-**Token-Level Confidence:**
-The pipeline requests token log probabilities from the LLM during generation (if supported). The log odds are converted to a linear confidence percentage using the exponential formula: `Confidence = exp(logprob)` (where `exp` is Euler's number `e` raised to the power of the log probability). This score is used in the UI to generate a confidence heatmap, where low-confidence tokens (< 95%) are highlighted in red.
-
-
-### 4. Execution & Self-Correction
-- Validates SQL syntax
-- Executes in sandboxed environment
-- On error: analyzes issue, modifies prompt, retries (up to 3x)
-
----
-
-## Benchmarking
-
-Run automated benchmarks to evaluate pipeline performance:
-
-1. Click **🧪 Run Benchmark** in the UI
-2. View results at `/static/analytics.html`
-
-Metrics tracked:
-- Success rate by difficulty
-- HITL trigger frequency
-- Average response time
-- Error patterns
-
----
-
-## Few-Shot Examples
-
-The pipeline uses few-shot examples to improve SQL generation accuracy. Examples are stored in `data/few_shot_examples.json`.
-
-### Saving Examples from the UI
-
-When a query executes successfully, click the **💾 Save as Example** button in the Generated SQL card to save it as a few-shot example. This is the best way to build quality examples from real usage.
-
-If the query required clarification (HITL), the clarification is also saved:
-
-```json
-{
-    "id": "user_20260106_120530",
-    "question": "What are the sales?",
-    "clarification": "Show completed sales for Q1 2025",
-    "sql": "SELECT * FROM sales WHERE status = 'completed' AND ...",
-    "intent": "select",
-    "tables": ["sales"],
-    "difficulty": "medium",
-    "saved_at": "2026-01-06T12:05:30.123456",
-    "source": "user_saved"
-}
-```
-
-### Generating Examples from Data
-
-Run the analyzer script to generate examples based on your actual database schema:
-
-```bash
-python scripts/analyze_data_for_examples.py
-```
-
-This script:
-- Auto-detects your SQLite database
-- Analyzes tables and column types
-- Generates realistic example queries (count, filter, aggregation, joins, etc.)
-- Saves suggestions to `scripts/suggested_examples.json`
-
-### SQLite Float Division Fix
-
-⚠️ **Important**: When calculating discounts or percentages in SQLite, always use `100.0` (not `100`) to avoid integer division:
-
-```sql
--- ❌ WRONG: Integer division, discount becomes 0
-SELECT price * (1 - discount_percent/100) FROM sales;
-
--- ✅ CORRECT: Float division
-SELECT price * (1 - discount_percent/100.0) FROM sales;
-```
-
-The few-shot examples include discount calculations using `100.0` to teach the LLM this pattern.
-
----
-
-## Development
-
-### Running Tests
-
-```bash
-python test_agent.py
-```
-
-### Adding New LLM Providers
-
-Implement the `LLMProvider` interface in `src/llm/providers.py`:
-
-```python
-class MyProvider(LLMProvider):
-    def generate(self, prompt: str, **kwargs) -> str:
-        # Your implementation
-        pass
+c_composite = 0.65·c_self + 0.15·c_exec + 0.10·c_sem + 0.10·c_logprob
 ```
 
 ---
 
 ## License
 
-MIT License
-
----
-
-## Acknowledgments
-
-- [LangGraph](https://github.com/langchain-ai/langgraph) — State machine framework
-- [BIRD-bench](https://bird-bench.github.io/) — Text-to-SQL benchmark
-- [Spider](https://yale-lily.github.io/spider) — Text-to-SQL dataset
+MIT
